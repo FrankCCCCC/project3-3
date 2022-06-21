@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <unordered_map>
 #include <cstring>
 #include <cstdio>
 #include <cstdlib>
@@ -27,6 +28,11 @@ typedef int Score;
 #define M_DIR_NUM 4
 #define REMOTE_RNG 2
 #define PATTERN_PAIR_CNT 2
+#define INIT_DEPTH 6
+#define INC_DEPTH 2
+
+#define INFO(s)\
+    std::cout << s << endl;\
 
 #define DEBUG 0
 #define debug_cpp(s)\
@@ -169,28 +175,32 @@ public:
             }
         }
     }
+    void write_spot(const Position &pos) {
+        this->fout << pos.r << " " << pos.c << std::endl;
+        // Remember to flush the output to ensure the last action is written to file.
+        this->fout.flush();
+    }
     void write_valid_spot(const Position& pos) {
         if (this->board[pos.r][pos.c] == DC) {
-            this->fout << pos.r << " " << pos.c << std::endl;
-            // Remember to flush the output to ensure the last action is written to file.
-            this->fout.flush();
+            this->write_spot(pos);
         }
     }
     void rand_spot(Position& pos, Score& sc) {
         srand(time(NULL));
-        int x, y;
+        Position rp;
         // Keep updating the output until getting killed.
         for (int i = 0; i < 30; i++) {
             // Choose a random spot.
-            int x = (rand() % this->b_size);
-            int y = (rand() % this->b_size);
-            if (this->board[x][y] == DC) {
-                pos.r = x;
-                pos.c = y;
-                this->fout << x << " " << y << std::endl;
-                // Remember to flush the output to ensure the last action is written to file.
-                this->fout.flush();
-            }
+            rp.r = (rand() % this->b_size);
+            rp.c = (rand() % this->b_size);
+            // if (this->board[x][y] == DC) {
+            //     pos.r = x;
+            //     pos.c = y;
+            //     this->fout << x << " " << y << std::endl;
+            //     // Remember to flush the output to ensure the last action is written to file.
+            //     this->fout.flush();
+            // }
+            write_valid_spot(rp);
         }
     }
 };
@@ -202,6 +212,7 @@ unsigned int g_eval_cnt = 0;
 unsigned int g_pattern_match_cnt = 0;
 unsigned int g_cc_0 = 0;
 unsigned int g_cc_1 = 0;
+IO io(G_B_SIZE, "state", "action");
 
 class Util {
     public:
@@ -229,8 +240,8 @@ class Util {
     static bool remote_spot(const char *state, int r, int c);
 
     // Game state hashing
-    static void zobristInit(int size, uint64_t *z1, uint64_t *z2);
-    static uint64_t zobristHash(const char *state, uint64_t *z1, uint64_t *z2);
+    // static void zobristInit(int size, uint64_t *z1, uint64_t *z2);
+    // static uint64_t zobristHash(const char *state, uint64_t *z1, uint64_t *z2);
     // static inline void zobristToggle(uint64_t *state, uint64_t *z1, uint64_t *z2,
     //                                  int row_size, int r, int c, int player) {
     //     if (player == 1) {
@@ -244,9 +255,8 @@ class Util {
 class Controller {
     public:
     Controller();
-    static void search_act(const char *state, int player, int search_depth, int time_limit,
-                             int *actual_depth, int *move_r, int *move_c, int *winning_player,
-                             unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
+    static void convert_board(const char *b_raw_str, char *state);
+    static bool search_act(const char *state, int player, int search_depth, int time_limit, int &actual_depth, int &move_r, int &move_c, int &winning_player);
 };
 
 #define kEvalWinningScore 10000
@@ -315,8 +325,7 @@ class Negamax {
     public:
     Negamax();
 
-    static void search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c);
-
+    static void search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int &actual_depth, int &move_r, int &move_c, int init_depth, int inc_depth);
     private:
     // Preset search breadth
     // From root to leaf, each element is for 2 layers
@@ -335,27 +344,25 @@ class Negamax {
         }
     };
 
-    static int negamax(char *state, int player, int initial_depth, int depth,
-                                bool enable_ab_pruning, int alpha, int beta,
-                                int *move_r, int *move_c);
+    static int negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c);
 
     // Search possible moves based on a given state, sorted by heuristic values.
     static void search_sorted_cands(const char *state, int player, std::vector<Move> &result);
 };
 
-class API {
-    public:
-    API();
+// class API {
+//     public:
+//     API();
 
-    // Generate move based on a given game state
-    static bool search_act(const char *b_raw_str, int ai_player_id,
-                             int search_depth, int time_limit, int num_threads,
-                             int *actual_depth, int *move_r, int *move_c, int *winning_player,
-                             unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
+//     // Generate move based on a given game state
+//     static bool search_act(const char *b_raw_str, int ai_player_id,
+//                              int search_depth, int time_limit, int num_threads,
+//                              int *actual_depth, int *move_r, int *move_c, int *winning_player,
+//                              unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
 
-    // Convert a game state string to game state binary array
-    static void convert_board(const char *b_raw_str, char *state);
-};
+//     // Convert a game state string to game state binary array
+//     static void convert_board(const char *b_raw_str, char *state);
+// };
 
 bool Util::remote_spot(const char *state, int r, int c) {
     // if (state == nullptr) return false;
@@ -370,79 +377,86 @@ bool Util::remote_spot(const char *state, int r, int c) {
     return true;
 }
 
-void Util::zobristInit(int size, uint64_t *z1, uint64_t *z2) {
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<uint64_t> d(0, UINT64_MAX);
+// void Util::zobristInit(int size, uint64_t *z1, uint64_t *z2) {
+//     std::random_device rd;
+//     std::mt19937 gen(rd());
+//     std::uniform_int_distribution<uint64_t> d(0, UINT64_MAX);
 
-    // Generate random values
-    for (int i = 0; i < size; i++) {
-        z1[i] = d(gen);
-        z2[i] = d(gen);
+//     // Generate random values
+//     for (int i = 0; i < size; i++) {
+//         z1[i] = d(gen);
+//         z2[i] = d(gen);
+//     }
+// }
+
+// uint64_t Util::zobristHash(const char *state, uint64_t *z1, uint64_t *z2) {
+//     uint64_t hash = 0;
+//     for (int i = 0; i < G_B_AREA; i++) {
+//         if (state[i] == 1) {
+//             hash ^= z1[i];
+//         } else if (state[i] == 2) {
+//             hash ^= z2[i];
+//         }
+//     }
+//     return hash;
+// }
+
+void Controller::convert_board(const char *b_raw_str, char *state) {
+    if (strlen(b_raw_str) != G_B_AREA) return;
+    for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
+        state[i] = b_raw_str[i] - '0';
     }
 }
-
-uint64_t Util::zobristHash(const char *state, uint64_t *z1, uint64_t *z2) {
-    uint64_t hash = 0;
-    for (int i = 0; i < G_B_AREA; i++) {
-        if (state[i] == 1) {
-            hash ^= z1[i];
-        } else if (state[i] == 2) {
-            hash ^= z2[i];
-        }
-    }
-    return hash;
-}
-
-
-void Controller::search_act(const char *state, int player, int search_depth, int time_limit,
-                           int *actual_depth, int *move_r, int *move_c, int *winning_player,
-                           unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count) {
+bool Controller::search_act(const char *b_raw_str, int player, int search_depth, int time_limit, int &actual_depth, int &move_r, int &move_c, int &winning_player) {
     // Check arguments
-    if (state == nullptr ||
+    if (b_raw_str == nullptr ||
         player  < 1 || player > 2 ||
         search_depth == 0 || search_depth > 10 ||
-        time_limit < 0 ||
-        move_r == nullptr || move_c == nullptr) return;
+        time_limit < 0) return false;
 
     // Initialize counters
     g_eval_cnt = 0;
     g_pattern_match_cnt = 0;
 
     // Initialize data
-    *move_r = -1;
-    *move_c = -1;
-    int _winning_player = 0;
-    if (actual_depth != nullptr) *actual_depth = 0;
-
-    // Check if anyone wins the game
-    _winning_player = Eval::win_player(state);
-    if (_winning_player != 0) {
-        if (winning_player != nullptr) *winning_player = _winning_player;
-        return;
-    }
+    move_r = -1;
+    move_c = -1;
+    // int _winning_player = 0;
+    winning_player = 0;
+    // if (actual_depth != nullptr) *actual_depth = 0;
+    actual_depth = 0;
 
     // Copy game state
-    char *_gs = new char[G_B_AREA];
-    std::memcpy(_gs, state, G_B_AREA);
-
-    // Run negamax
-    Negamax::search(_gs, player, search_depth, time_limit, true, actual_depth, move_r, move_c);
-
-    // Execute the move
-    std::memcpy(_gs, state, G_B_AREA);
-    Util::set_spot(_gs, *move_r, *move_c, static_cast<char>(player));
+    char state[G_B_AREA] = {0};
+    // std::memcpy(_gs, state, G_B_AREA);
+    Controller::convert_board(b_raw_str, state);
 
     // Check if anyone wins the game
-    _winning_player = Eval::win_player(_gs);
+    winning_player = Eval::win_player(state);
+    if (winning_player != 0) {
+        // if (winning_player != nullptr) *winning_player = _winning_player;
+        winning_player = winning_player;
+        return true;
+    }
+
+    // Run negamax
+    Negamax::search(state, player, search_depth, time_limit, true, actual_depth, move_r, move_c, INIT_DEPTH, INC_DEPTH);
+
+    // Execute the move
+    // std::memcpy(_gs, state, G_B_AREA);
+    Util::set_spot(state, move_r, move_c, static_cast<char>(player));
+
+    // Check if anyone wins the game
+    winning_player = Eval::win_player(state);
 
     // Write output
-    if (winning_player != nullptr) *winning_player = _winning_player;
-    if (node_count != nullptr) *node_count = g_node_cnt;
-    if (eval_count != nullptr) *eval_count = g_eval_cnt;
-    if (pm_count != nullptr) *pm_count = g_pattern_match_cnt;
+    // if (winning_player != nullptr) *winning_player = _winning_player;
+    // if (node_count != nullptr) *node_count = g_node_cnt;
+    // if (eval_count != nullptr) *eval_count = g_eval_cnt;
+    // if (pm_count != nullptr) *pm_count = g_pattern_match_cnt;
 
-    delete[] _gs;
+    // delete[] _gs;
+    return true;
 }
 
 // Initialize global variables
@@ -805,57 +819,117 @@ int Negamax::presetSearchBreadth[5] = {17, 7, 5, 3, 3};
 // prefers closer advantages
 #define kScoreDecayFactor 0.95f
 
-void Negamax::search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c) {
+typedef uint64_t ZbsHash;
+typedef uint64_t Hash;
+// union Hash{
+//     ZbsHash Zobrist_hash;
+//     char r;
+//     char c;
+//     char player;
+// };
+
+class ZobristHash {
+private:
+    static ZbsHash* HASH_O, * HASH_X;
+public:
+    ZobristHash() {}
+    static class ClassInit {
+        public:
+        ClassInit() {
+            // Static constructor definition
+            std::random_device rd;
+            std::mt19937 gen(rd());
+            std::uniform_int_distribution<ZbsHash> d(0, UINT64_MAX);
+
+            ZobristHash::HASH_O = new ZbsHash[G_B_AREA];
+            ZobristHash::HASH_X = new ZbsHash[G_B_AREA];
+
+            // Generate random values
+            for (int i = 0; i < G_B_AREA; i++) {
+                ZobristHash::HASH_O[i] = d(gen);
+                ZobristHash::HASH_X[i] = d(gen);
+            }
+        }
+    } Initialize;
+
+    static ZbsHash zobrist_hash(const char *state) {
+        ZbsHash h = 0;
+        for (int i = 0; i < G_B_AREA; i++) {
+            if (state[i] == 1) { h ^= HASH_O[i]; }
+            else if (state[i] == 2) { h ^= HASH_X[i]; }
+        }
+        return h;
+    }
+    static Hash hash(const char *state, int r, int c, int player) {
+        Hash h = ZobristHash::zobrist_hash(state);
+        h ^= (r ^ c ^ player);
+        return h;
+    }
+};
+ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X;
+ZobristHash::ClassInit ZobristHash::Initialize;
+
+typedef unordered_map<Hash, Score> STATE_MAP;
+
+void Negamax::search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int &actual_depth, int &move_r, int &move_c, int init_depth=INIT_DEPTH, int inc_depth=INC_DEPTH) {
     // Check arguments
-    if (state == nullptr ||
-        player < 1 || player > 2 ||
-        depth == 0 || depth < -1 ||
-        time_limit < 0) return;
+    // if (state == nullptr ||
+    //     player < 1 || player > 2 ||
+    //     depth == 0 || depth < -1 ||
+    //     time_limit < 0) return;
+
+    ERR_NULL_CHECK(state,)
+    ERR_PLAYER_CHECK(player,)
+    if (depth == 0 || depth < -1 || time_limit < 0){return;}
 
     // Copy game state
-    char *_gs = new char[G_B_AREA];
-    memcpy(_gs, state, G_B_AREA);
+    char ng_state[G_B_AREA] = {0};
+    memcpy(ng_state, state, G_B_AREA);
 
     // Speedup first move
-    int _cnt = 0;
-    for (int i = 0; i < static_cast<int>(G_B_AREA); i++)
-        if (_gs[i] != 0) _cnt++;
+    int empty_cnt = 0;
+    for (int i = 0; i < G_B_AREA; i++){
+        if (ng_state[i] != 0){empty_cnt++;}
+    }
+    if (empty_cnt <= 2){depth = INIT_DEPTH;}
 
-    if (_cnt <= 2) depth = 6;
+    int alpha = INT_MIN / 2, beta = INT_MAX / 2;
 
     // Fixed depth or iterative deepening
     if (depth > 0) {
-        if (actual_depth != nullptr) *actual_depth = depth;
-        negamax(_gs, player, depth, depth, enable_ab_pruning,
-                         INT_MIN / 2, INT_MAX / 2, move_r, move_c);
+        // if (actual_depth != nullptr) *actual_depth = depth;
+        actual_depth = depth;
+        negamax(ng_state, player, depth, depth, enable_ab_pruning, alpha, beta, move_r, move_c);
     } else {
         // Iterative deepening
         std::clock_t c_start = std::clock();
-        for (int d = 6;; d += 2) {
+        for (int d = INIT_DEPTH;; d += INC_DEPTH) {
             std::clock_t c_iteration_start = std::clock();
 
             // Reset game state
-            memcpy(_gs, state, G_B_AREA);
+            memcpy(ng_state, state, G_B_AREA);
 
             // Execute search
-            negamax(_gs, player, d, d, enable_ab_pruning,
-                             INT_MIN / 2, INT_MAX / 2, move_r, move_c);
+            negamax(ng_state, player, d, d, enable_ab_pruning, alpha, beta, move_r, move_c);
+            actual_depth = d;
+            INFO("Deepening - actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " node_count: " << g_node_cnt << " eval_count: " << g_eval_cnt)
+            io.write_valid_spot(Position(move_r, move_c));
 
             // Times
             std::clock_t c_iteration = (std::clock() - c_iteration_start) * 1000 / CLOCKS_PER_SEC;
             std::clock_t c_elapsed = (std::clock() - c_start) * 1000 / CLOCKS_PER_SEC;
 
-            if (c_elapsed + (c_iteration * kAvgBranchingFactor * kAvgBranchingFactor) > time_limit ||
-                d >= kMaximumDepth) {
-                if (actual_depth != nullptr) *actual_depth = d;
+            if (c_elapsed + (c_iteration * kAvgBranchingFactor * kAvgBranchingFactor) > time_limit || d >= kMaximumDepth) {
+                // if (actual_depth != nullptr) *actual_depth = d;
+                actual_depth = d;
                 break;
             }
         }
     }
-    delete[] _gs;
+    // delete[] ng_state;
 }
 
-int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int *move_r, int *move_c) {
+int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c) {
     // Count node
     ++g_node_cnt;
 
@@ -873,8 +947,9 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     // End directly if only one move or a winning move is found
     if (moves_player.size() == 1 || moves_player[0].heuristic_val >= kEvalWinningScore) {
         auto move = moves_player[0];
-        if (move_r != nullptr) *move_r = move.r;
-        if (move_c != nullptr) *move_c = move.c;
+        // if (move_r != nullptr) *move_r = move.r;
+        // if (move_c != nullptr) *move_c = move.c;
+        move_r = move.r; move_c = move.c;
         return move.heuristic_val;
     }
 
@@ -922,6 +997,7 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
 
         // Run negamax recursively
         int sc = 0;
+        int dummy_r = 0, dummy_c = 0;
         if (depth > 1) sc = negamax(state,                 // Game state
                                                 opponent,           // Change player
                                                 initial_depth,      // Initial depth
@@ -929,8 +1005,8 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
                                                 enable_ab_pruning,  // Alpha-Beta
                                                 -beta,              //
                                                 -alpha + move.heuristic_val,
-                                                nullptr,            // Result move not required
-                                                nullptr);
+                                                dummy_r,            // Result move not required
+                                                dummy_c);
 
         // Closer moves get more score
         if (sc >= 2) sc = static_cast<int>(sc * kScoreDecayFactor);
@@ -951,8 +1027,9 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         // Update maximum score
         if (move.actual_score > max_score) {
             max_score = move.actual_score;
-            if (move_r != nullptr) *move_r = move.r;
-            if (move_c != nullptr) *move_c = move.c;
+            // if (move_r != nullptr) *move_r = move.r;
+            // if (move_c != nullptr) *move_c = move.c;
+            move_r = move.r; move_c = move.c;
         }
 
         // Alpha-beta
@@ -969,8 +1046,9 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         int b_score = blocking_move.actual_score;
         if (b_score == 0) b_score = 1;
         if ((max_score - b_score) / static_cast<float>(std::abs(b_score)) < 0.2) {
-            if (move_r != nullptr) *move_r = blocking_move.r;
-            if (move_c != nullptr) *move_c = blocking_move.c;
+            // if (move_r != nullptr) *move_r = blocking_move.r;
+            // if (move_c != nullptr) *move_c = blocking_move.c;
+            move_r = blocking_move.r; move_c = blocking_move.c;
             max_score = blocking_move.actual_score;
         }
     }
@@ -1031,46 +1109,42 @@ void Negamax::search_sorted_cands(const char *state, int player, std::vector<Mov
     std::sort(result.begin(), result.end());
 }
 
-bool API::search_act(const char *b_raw_str, int ai_player_id,
-                            int search_depth, int time_limit, int num_threads,
-                            int *actual_depth, int *move_r, int *move_c, int *winning_player,
-                            unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count) {
-    // Check input data
-    if (strlen(b_raw_str) != G_B_AREA ||
-        ai_player_id  < 1 || ai_player_id > 2 ||
-        search_depth == 0 || search_depth > 10 ||
-        time_limit < 0    ||
-        num_threads  < 1) {
-        return false;
-    }
+// bool API::search_act(const char *b_raw_str, int ai_player_id,
+//                             int search_depth, int time_limit, int num_threads,
+//                             int *actual_depth, int *move_r, int *move_c, int *winning_player,
+//                             unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count) {
+//     // Check input data
+//     if (strlen(b_raw_str) != G_B_AREA ||
+//         ai_player_id  < 1 || ai_player_id > 2 ||
+//         search_depth == 0 || search_depth > 10 ||
+//         time_limit < 0    ||
+//         num_threads  < 1) {
+//         return false;
+//     }
 
-    // Copy game state
-    char *state = new char[G_B_AREA];
-    std::memcpy(state, b_raw_str, G_B_AREA);
+//     // Copy game state
+//     char *state = new char[G_B_AREA];
+//     std::memcpy(state, b_raw_str, G_B_AREA);
 
-    // Convert from string
-    convert_board(b_raw_str, state);
+//     // Convert from string
+//     convert_board(b_raw_str, state);
 
-    // Generate move
-    Controller::search_act(state, ai_player_id, search_depth, time_limit, actual_depth,
-                                    move_r, move_c, winning_player, node_count, eval_count, pm_count);
+//     // Generate move
+//     Controller::search_act(state, ai_player_id, search_depth, time_limit, *actual_depth, *move_r, *move_c, *winning_player);
 
-    // Release memory
-    delete[] state;
-    return true;
-}
+//     // Release memory
+//     delete[] state;
+//     return true;
+// }
 
-void API::convert_board(const char *b_raw_str, char *state) {
-    if (strlen(b_raw_str) != G_B_AREA) return;
-    for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
-        state[i] = b_raw_str[i] - '0';
-    }
-}
+// void API::convert_board(const char *b_raw_str, char *state) {
+//     if (strlen(b_raw_str) != G_B_AREA) return;
+//     for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
+//         state[i] = b_raw_str[i] - '0';
+//     }
+// }
 
 int main(){
-    string infile("state"), outfile("action");
-    // string infile("input.txt"), outfile("output.txt");
-    IO io(G_B_SIZE, infile, outfile);
     io.read_board();
     // std::cout << io.board << endl;
 
@@ -1098,14 +1172,14 @@ int main(){
 
     int time_limit = 10000;
     int move_r, move_c, winning_player, actual_depth;
-    unsigned int node_count, eval_count;
-    bool success = API::search_act(b_raw_str, 1, -1, time_limit, 1, &actual_depth, &move_r, &move_c, &winning_player, &node_count, &eval_count, nullptr);
+    // unsigned int node_count, eval_count;
+    bool success = Controller::search_act(b_raw_str, 1, -1, time_limit, actual_depth, move_r, move_c, winning_player);
 
     io.write_valid_spot(Position(move_r, move_c));
     if(success){
-        std::cout << "Success actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " winning_player: " << winning_player << " node_count: " << node_count << " eval_count: " << eval_count << endl;
+        INFO("Success actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " winning_player: " << winning_player << " node_count: " << g_node_cnt << " eval_count: " << g_eval_cnt);
     }else{
-        std::cout << "Fail actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " winning_player: " << winning_player << " node_count: " << node_count << " eval_count: " << eval_count << endl;
+        INFO("Fail actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " winning_player: " << winning_player << " node_count: " << g_node_cnt << " eval_count: " << g_eval_cnt);
     }
     
     return 0;

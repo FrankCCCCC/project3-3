@@ -1,0 +1,9 @@
+﻿  main.cpp
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(186,31): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(186,31): warning C4267: 'initializing': conversion from 'size_t' to 'const int', possible loss of data
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(423,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(478,1): warning C4267: 'initializing': conversion from 'size_t' to 'int', possible loss of data
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(808,19): warning C4244: 'argument': conversion from 'time_t' to 'unsigned int', possible loss of data
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(809,16): warning C4101: 'y': unreferenced local variable
+D:\data\I2P_Kuo\project3\final_project\final_project\main.cpp(809,13): warning C4101: 'x': unreferenced local variable
+  final_project.vcxproj -> D:\data\I2P_Kuo\project3\final_project\x64\Debug\final_project.exe

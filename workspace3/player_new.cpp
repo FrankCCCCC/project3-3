@@ -22,6 +22,7 @@ typedef int Score;
 #define OC 'O'
 #define XC 'X'
 #define DC '.'
+#define WIN_COND 5
 #define get_tuple(t, i) std::get<i>(t)
 #define M_DIR_NUM 4
 #define REMOTE_RNG 2
@@ -250,7 +251,7 @@ class Controller {
 #define kEvalThreateningScore 300
 
 class Eval {
- public:
+    public:
     Eval();
     ~Eval();
 
@@ -261,7 +262,7 @@ class Eval {
     // Check if any player is winning based on a given state
     static int win_player(const char *state);
     // Result of a single direction measurement
-    struct Measurement {
+    struct Measure {
         // Number of pieces in a row
         char len; 
         // Number of ends blocked by edge or the other player (0-2)
@@ -280,37 +281,29 @@ class Eval {
         // Number of spaces in the middle of pattern (-1: Ignore value)
         char space_cnt;
     };
+    const static int PATTERNS_NUM;
+    const static int *SKIP_PATTERNS;
     // An array of preset patterns
-    static Pattern *preset_patterns;
+    const static Pattern *PATTERNS;
     // Preset scores of each preset pattern
-    static int *preset_scores;
+    const static int *PATTERN_SCORES;
     // Loads preset patterns into memory
-    // preset_patterns_skip is the number of patterns to skip for a maximum
+    // SKIP_PATTERNS is the number of patterns to skip for a maximum
     // measured length in an measure_4d (e.g. longest is 3 pieces
     // in an ADM, then skip first few patterns that require 4 pieces or more).
-    static void gen_patterns(Pattern **preset_patterns, int **preset_scores, int *preset_patterns_size, int *preset_patterns_skip);
+    // static void gen_patterns(Pattern **PATTERNS, int **PATTERN_SCORES, int *PATTERNS_NUM, int *SKIP_PATTERNS);
 
     // Evaluates measures in 4 directions
-    static int eval_measures(Measurement *measure_4d);
+    static int eval_measures(Measure *measure_4d);
 
     // Match the patterns to measures in 4 directions
-    static int match_pattern(Measurement *measure_4d, Pattern *patterns);
+    static int match_pattern(const Measure *measure_4d, const Pattern *patterns);
 
     // Measures all 4 directions
-    static void gen_measures(const char *state,
-                                     int r,
-                                     int c,
-                                     int player,
-                                     bool is_cont,
-                                     Eval::Measurement *ms);
+    static void gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measure *ms);
 
     // Measure a single direction
-    static void gen_measure(const char *state,
-                                 int r, int c,
-                                 int dr, int dc,
-                                 int player,
-                                 bool is_cont,
-                                 Eval::Measurement *result);
+    static void gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measure *result);
 };
 
 class Negamax {
@@ -352,13 +345,13 @@ class API {
     ~API();
 
     // Generate move based on a given game state
-    static bool search_act(const char *gs_string, int ai_player_id,
+    static bool search_act(const char *b_raw_str, int ai_player_id,
                              int search_depth, int time_limit, int num_threads,
                              int *actual_depth, int *move_r, int *move_c, int *winning_player,
                              unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
 
     // Convert a game state string to game state binary array
-    static void convert_board(const char *gs_string, char *state);
+    static void convert_board(const char *b_raw_str, char *state);
 };
 
 bool Util::remote_spot(const char *state, int r, int c) {
@@ -450,10 +443,43 @@ void Controller::search_act(const char *state, int player, int search_depth, int
 }
 
 // Initialize global variables
-Eval::Pattern *Eval::preset_patterns = nullptr;
-int *Eval::preset_scores = nullptr;
-int preset_patterns_size = 0;
-int preset_patterns_skip[6] = {0};
+// Eval::Pattern *Eval::PATTERNS = nullptr;
+// int *Eval::PATTERN_SCORES = nullptr;
+// int PATTERNS_NUM = 0;
+// int SKIP_PATTERNS[6] = {0};
+
+const int Eval::PATTERNS_NUM = 11;
+const int *Eval::SKIP_PATTERNS = new int[6]{PATTERNS_NUM, PATTERNS_NUM, 10, 7, 1, 0};
+const Eval::Pattern *Eval::PATTERNS = new Eval::Pattern[PATTERNS_NUM * 2]{
+        {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
+        {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
+        {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
+        {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
+        {1, 4,  1,  0}, {1, 4, -1,  1},  // 700
+        {1, 4,  1,  0}, {1, 3,  0, -1},  // 500
+        {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
+        {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
+        // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
+        // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
+        {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
+        {1, 3,  0, -1}, {0, 0,  0,  0},  // 20
+        {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
+    };
+const int *Eval::PATTERN_SCORES = new int[PATTERNS_NUM]{
+        10000,
+        700,
+        700,
+        700,
+        700,
+        500,
+        500,
+        300,
+        // 1,
+        // 1,
+        50,
+        20,
+        9
+};
 
 int Eval::eval_state(const char *state, int player) {
     // if (state == nullptr || player < 1 || player > 2) return 0;
@@ -480,11 +506,11 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     ++g_eval_cnt;
 
     // Generate preset patterns structure in memory
-    if (preset_patterns == nullptr) {
-        gen_patterns(&preset_patterns, &preset_scores, &preset_patterns_size, preset_patterns_skip);
-    }
+    // if (PATTERNS == nullptr) {
+    //     gen_patterns(&PATTERNS, &PATTERN_SCORES, &PATTERNS_NUM, SKIP_PATTERNS);
+    // }
 
-    Measurement ms[M_DIR_NUM];
+    Measure ms[M_DIR_NUM];
 
     // Measure continuous and non-continuous conditions
     gen_measures(state, r, c, player, false, ms);
@@ -510,9 +536,9 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     // return max_score;
 }
 
-int Eval::eval_measures(Measurement *measure_4d) {
+int Eval::eval_measures(Measure *measure_4d) {
     int sc = 0;
-    // int size = preset_patterns_size;
+    // int size = PATTERNS_NUM;
 
     // Add to score by length on each direction
     // Find the maximum length in measure_4d and skip some patterns
@@ -523,11 +549,11 @@ int Eval::eval_measures(Measurement *measure_4d) {
         max_measure_len = max(len, max_measure_len);
         sc += (len - 1);
     }
-    int start_pat_idx = preset_patterns_skip[max_measure_len];
+    int start_pat_idx = SKIP_PATTERNS[max_measure_len];
 
     // Match specified patterns, ignore the patterns measures doesn't have
-    for (int i = start_pat_idx; i < preset_patterns_size; i++) {
-        sc += match_pattern(measure_4d, &preset_patterns[2 * i]) * preset_scores[i];
+    for (int i = start_pat_idx; i < PATTERNS_NUM; i++) {
+        sc += match_pattern(measure_4d, &PATTERNS[2 * i]) * PATTERN_SCORES[i];
 
         // Only match one threatening pattern
         if (sc >= kEvalThreateningScore){break;}
@@ -536,7 +562,7 @@ int Eval::eval_measures(Measurement *measure_4d) {
     return sc;
 }
 
-int Eval::match_pattern(Measurement *measure_4d, Pattern *patterns) {
+int Eval::match_pattern(const Measure *measure_4d, const Pattern *patterns) {
     // Check arguments
     // if (measure_4d == nullptr) return -1;
     // if (patterns == nullptr) return -1;
@@ -577,7 +603,7 @@ int Eval::match_pattern(Measurement *measure_4d, Pattern *patterns) {
     return res_match_cnt;
 }
 
-void Eval::gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measurement *ms) {
+void Eval::gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measure *ms) {
     // Check arguments
     // if (state == nullptr) return;
     // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
@@ -591,7 +617,7 @@ void Eval::gen_measures(const char *state, int r, int c, int player, bool is_con
     gen_measure(state, r, c, 1, -1, player, is_cont, &ms[3]);
 }
 
-void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measurement *result) {
+void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measure *result) {
     // Check arguments
     // if (state == nullptr) return;
     // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
@@ -661,61 +687,60 @@ void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int play
     }
 }
 
-void Eval::gen_patterns(Pattern **preset_patterns,
-                                         int **preset_scores,
-                                         int *preset_patterns_size,
-                                         int *preset_patterns_skip) {
-    const int pattern_num = 11;
-    preset_patterns_skip[5] = 0;
-    preset_patterns_skip[4] = 1;
-    preset_patterns_skip[3] = 7;
-    preset_patterns_skip[2] = 10;
+// void Eval::gen_patterns(Pattern **PATTERNS,
+//                                          int **PATTERN_SCORES,
+//                                          int *PATTERNS_NUM,
+//                                          int *SKIP_PATTERNS) {
+//     const int pattern_num = 11;
+//     SKIP_PATTERNS[5] = 0;
+//     SKIP_PATTERNS[4] = 1;
+//     SKIP_PATTERNS[3] = 7;
+//     SKIP_PATTERNS[2] = 10;
 
-    preset_patterns_skip[1] = pattern_num;
-    preset_patterns_skip[0] = pattern_num;
+//     SKIP_PATTERNS[1] = pattern_num;
+//     SKIP_PATTERNS[0] = pattern_num;
 
-    // Pattern = {min_occur, len, block_cnt, space_cnt}
-    Pattern patterns[pattern_num * 2] = {
-        {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
-        {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
-        {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
-        {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
-        {1, 4,  1,  0}, {1, 4, -1,  1},  // 700
-        {1, 4,  1,  0}, {1, 3,  0, -1},  // 500
-        {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
-        {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
-        // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
-        // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
-        {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
-        {1, 3,  0, -1}, {0, 0,  0,  0},  // 20
-        {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
-    };
+//     // Pattern = {min_occur, len, block_cnt, space_cnt}
+//     Pattern patterns[pattern_num * 2] = {
+//         {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
+//         {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
+//         {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
+//         {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
+//         {1, 4,  1,  0}, {1, 4, -1,  1},  // 700
+//         {1, 4,  1,  0}, {1, 3,  0, -1},  // 500
+//         {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
+//         {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
+//         // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
+//         // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
+//         {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
+//         {1, 3,  0, -1}, {0, 0,  0,  0},  // 20
+//         {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
+//     };
 
-    Score scores[pattern_num] = {
-        10000,
-        700,
-        700,
-        700,
-        700,
-        500,
-        500,
-        300,
-        // 1,
-        // 1,
-        50,
-        20,
-        9
-    };
+//     Score scores[pattern_num] = {
+//         10000,
+//         700,
+//         700,
+//         700,
+//         700,
+//         500,
+//         500,
+//         300,
+//         // 1,
+//         // 1,
+//         50,
+//         20,
+//         9
+//     };
 
-    *preset_patterns = new Pattern[pattern_num * 2];
-    *preset_scores   = new int[pattern_num];
+//     *PATTERNS = new Pattern[pattern_num * 2];
+//     *PATTERN_SCORES   = new int[pattern_num];
 
-    memcpy(*preset_patterns, patterns, sizeof(Pattern) * pattern_num * 2);
-    memcpy(*preset_scores, scores, sizeof(int) * pattern_num);
+//     memcpy(*PATTERNS, patterns, sizeof(Pattern) * pattern_num * 2);
+//     memcpy(*PATTERN_SCORES, scores, sizeof(int) * pattern_num);
 
-    *preset_patterns_size = pattern_num;
-}
-#define WIN_COND 5
+//     *PATTERNS_NUM = pattern_num;
+// }
 
 int Eval::win_player(const char *state) {
     // if (state == nullptr) return 0;
@@ -727,13 +752,13 @@ int Eval::win_player(const char *state) {
             // for (int dr = -1; dr <= 1; dr++) {
             //     for (int dc = -1; dc <= 1; dc++) {
             //         if (dr == 0 && dc <= 0){continue;}
-            //         Measurement dm;
+            //         Measure dm;
             //         gen_measure(state, r, c, dr, dc, spot, 1, &dm);
             //         if (dm.len >= WIN_COND){return spot;}
             //     }
             // }
             // Check In 4 directions
-            Measurement m_h, m_v, m_lu, m_ru;
+            Measure m_h, m_v, m_lu, m_ru;
             gen_measure(state, r, c, 0, 1, spot, 1, &m_h);
             gen_measure(state, r, c, 1, 0, spot, 1, &m_v);
             gen_measure(state, r, c, 1, 1, spot, 1, &m_lu);
@@ -760,8 +785,7 @@ int Negamax::presetSearchBreadth[5] = {17, 7, 5, 3, 3};
 // prefers closer advantages
 #define kScoreDecayFactor 0.95f
 
-void Negamax::negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning,
-                                      int *actual_depth, int *move_r, int *move_c) {
+void Negamax::negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c) {
     // Check arguments
     if (state == nullptr ||
         player < 1 || player > 2 ||
@@ -980,12 +1004,12 @@ void Negamax::searchMovesOrdered(const char *state, int player, std::vector<Move
     std::sort(result->begin(), result->end());
 }
 
-bool API::search_act(const char *gs_string, int ai_player_id,
+bool API::search_act(const char *b_raw_str, int ai_player_id,
                             int search_depth, int time_limit, int num_threads,
                             int *actual_depth, int *move_r, int *move_c, int *winning_player,
                             unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count) {
     // Check input data
-    if (strlen(gs_string) != G_B_AREA ||
+    if (strlen(b_raw_str) != G_B_AREA ||
         ai_player_id  < 1 || ai_player_id > 2 ||
         search_depth == 0 || search_depth > 10 ||
         time_limit < 0    ||
@@ -995,10 +1019,10 @@ bool API::search_act(const char *gs_string, int ai_player_id,
 
     // Copy game state
     char *state = new char[G_B_AREA];
-    std::memcpy(state, gs_string, G_B_AREA);
+    std::memcpy(state, b_raw_str, G_B_AREA);
 
     // Convert from string
-    convert_board(gs_string, state);
+    convert_board(b_raw_str, state);
 
     // Generate move
     Controller::search_act(state, ai_player_id, search_depth, time_limit, actual_depth,
@@ -1009,10 +1033,10 @@ bool API::search_act(const char *gs_string, int ai_player_id,
     return true;
 }
 
-void API::convert_board(const char *gs_string, char *state) {
-    if (strlen(gs_string) != G_B_AREA) return;
+void API::convert_board(const char *b_raw_str, char *state) {
+    if (strlen(b_raw_str) != G_B_AREA) return;
     for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
-        state[i] = gs_string[i] - '0';
+        state[i] = b_raw_str[i] - '0';
     }
 }
 
@@ -1024,17 +1048,17 @@ int main(){
     // std::cout << io.board << endl;
 
     bool is_first_hand = true;
-    char gs_string[G_B_SIZE * G_B_SIZE] = {0};
+    char b_raw_str[G_B_SIZE * G_B_SIZE] = {0};
     for(int i = 0; i < io.board.size(); i++){
         for(int j = 0; j < io.board.at(0).size(); j++){
             if(io.board[i][j] == OC){
-                gs_string[i * G_B_SIZE + j] = '1';
+                b_raw_str[i * G_B_SIZE + j] = '1';
                 is_first_hand = false;
             }else if(io.board[i][j] == XC){
-                gs_string[i * G_B_SIZE + j] = '2';
+                b_raw_str[i * G_B_SIZE + j] = '2';
                 is_first_hand = false;
             }else{
-                gs_string[i * G_B_SIZE + j] = '0';
+                b_raw_str[i * G_B_SIZE + j] = '0';
             }
         }
     }
@@ -1048,8 +1072,7 @@ int main(){
     int time_limit = 10000;
     int move_r, move_c, winning_player, actual_depth;
     unsigned int node_count, eval_count;
-    bool success = API::search_act(gs_string, 1, -1, time_limit, 1, &actual_depth, &move_r, &move_c,
-                                          &winning_player, &node_count, &eval_count, nullptr);
+    bool success = API::search_act(b_raw_str, 1, -1, time_limit, 1, &actual_depth, &move_r, &move_c, &winning_player, &node_count, &eval_count, nullptr);
 
     io.write_valid_spot(Position(move_r, move_c));
     if(success){

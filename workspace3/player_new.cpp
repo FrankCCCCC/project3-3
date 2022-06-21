@@ -25,6 +25,7 @@ typedef int Score;
 #define get_tuple(t, i) std::get<i>(t)
 #define M_DIR_NUM 4
 #define REMOTE_RNG 2
+#define PATTERN_PAIR_CNT 2
 
 #define DEBUG 0
 #define debug_cpp(s)\
@@ -285,19 +286,15 @@ class Eval {
     static int *preset_scores;
     // Loads preset patterns into memory
     // preset_patterns_skip is the number of patterns to skip for a maximum
-    // measured length in an all_direction_measurement (e.g. longest is 3 pieces
+    // measured length in an measure_4d (e.g. longest is 3 pieces
     // in an ADM, then skip first few patterns that require 4 pieces or more).
-    static void gen_patterns(Pattern **preset_patterns,
-                                       int **preset_scores,
-                                       int *preset_patterns_size,
-                                       int *preset_patterns_skip);
+    static void gen_patterns(Pattern **preset_patterns, int **preset_scores, int *preset_patterns_size, int *preset_patterns_skip);
 
-    // Evaluates an all-direction measurement
-    static int eval_measures(Measurement *all_direction_measurement);
+    // Evaluates measures in 4 directions
+    static int eval_measures(Measurement *measure_4d);
 
-    // Tries to match a set of patterns with an all-direction measurement
-    static int match_pattern(Measurement *all_direction_measurement,
-                            Pattern *patterns);
+    // Match the patterns to measures in 4 directions
+    static int match_pattern(Measurement *measure_4d, Pattern *patterns);
 
     // Measures all 4 directions
     static void gen_measures(const char *state,
@@ -321,8 +318,7 @@ class Negamax {
     Negamax();
     ~Negamax();
 
-    static void negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning,
-                                 int *actual_depth, int *move_r, int *move_c);
+    static void negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c);
 
     private:
     // Preset search breadth
@@ -514,69 +510,71 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     // return max_score;
 }
 
-int Eval::eval_measures(Measurement *all_direction_measurement) {
+int Eval::eval_measures(Measurement *measure_4d) {
     int sc = 0;
-    int size = preset_patterns_size;
+    // int size = preset_patterns_size;
 
     // Add to score by length on each direction
-    // Find the maximum length in ADM and skip some patterns
-    int max_measured_len = 0;
+    // Find the maximum length in measure_4d and skip some patterns
+    int max_measure_len = 0;
     for (int i = 0; i < M_DIR_NUM; i++) {
-        int len = all_direction_measurement[i].len;
-        max_measured_len = len > max_measured_len ? len : max_measured_len;
-        sc += len - 1;
+        int len = measure_4d[i].len;
+        // max_measure_len = len > max_measure_len ? len : max_measure_len;
+        max_measure_len = max(len, max_measure_len);
+        sc += (len - 1);
     }
-    int start_pattern = preset_patterns_skip[max_measured_len];
+    int start_pat_idx = preset_patterns_skip[max_measure_len];
 
-    // Loop through and try to match all preset patterns
-    for (int i = start_pattern; i < size; ++i) {
-        sc += match_pattern(all_direction_measurement, &preset_patterns[2 * i]) * preset_scores[i];
+    // Match specified patterns, ignore the patterns measures doesn't have
+    for (int i = start_pat_idx; i < preset_patterns_size; i++) {
+        sc += match_pattern(measure_4d, &preset_patterns[2 * i]) * preset_scores[i];
 
         // Only match one threatening pattern
-        if (sc >= kEvalThreateningScore) break;
+        if (sc >= kEvalThreateningScore){break;}
     }
 
     return sc;
 }
 
-int Eval::match_pattern(Measurement *all_direction_measurement, Pattern *patterns) {
+int Eval::match_pattern(Measurement *measure_4d, Pattern *patterns) {
     // Check arguments
-    if (all_direction_measurement == nullptr) return -1;
-    if (patterns == nullptr) return -1;
+    // if (measure_4d == nullptr) return -1;
+    // if (patterns == nullptr) return -1;
+    NULL_CHECK(measure_4d, -1);
+    NULL_CHECK(patterns, -1);
 
     // Increment pattern match count
     g_pattern_match_cnt++;
 
-    // Initialize match_count to INT_MAX since minimum value will be output
-    int match_count = INT_MAX, single_pattern_match = 0;
+    // Initialize res_match_cnt to INT_MAX since minimum value will be output
+    int res_match_cnt = INT_MAX, pat_i_match_cnt = 0;
 
     // Currently allows maximum 2 patterns
-    for (int i = 0; i < 2; ++i) {
-        auto p = patterns[i];
+    for (int i = 0; i < PATTERN_PAIR_CNT; i++) {
+        Eval::Pattern p = patterns[i];
         if (p.len == 0) break;
 
         // Initialize counter
-        single_pattern_match = 0;
+        pat_i_match_cnt = 0;
 
         // Loop through 4 directions
-        for (int j = 0; j < M_DIR_NUM; ++j) {
-            auto dm = all_direction_measurement[j];
+        for (int j = 0; j < M_DIR_NUM; j++) {
+            auto m = measure_4d[j];
 
-            // Requires exact match
-            if (dm.len == p.len &&
-                (p.block_cnt == -1 || dm.block_cnt == p.block_cnt) &&
-                (p.space_cnt == -1 || dm.space_cnt == p.space_cnt)) {
-                single_pattern_match++;
+            // Exact match pattern
+            if (m.len == p.len && (p.block_cnt == -1 || m.block_cnt == p.block_cnt) && (p.space_cnt == -1 || m.space_cnt == p.space_cnt)) {
+                pat_i_match_cnt++;
             }
         }
 
         // Consider minimum number of occurrences
-        single_pattern_match /= p.min_occur;
+        pat_i_match_cnt /= p.min_occur;
 
         // Take smaller value
-        match_count = match_count >= single_pattern_match ? single_pattern_match : match_count;
+        // res_match_cnt = res_match_cnt >= pat_i_match_cnt ? pat_i_match_cnt : res_match_cnt;
+        res_match_cnt = min(res_match_cnt, pat_i_match_cnt);
     }
-    return match_count;
+    return res_match_cnt;
 }
 
 void Eval::gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measurement *ms) {
@@ -602,29 +600,33 @@ void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int play
     ERR_POS_CHECK(r,c,)
 
     // Initialization
-    int cr = r, cc = c;
-    result->len = 1, result->block_cnt = 2, result->space_cnt = 0;
+    int r_cnt = r, c_cnt = c;
+    result->len = 1;
+    result->block_cnt = 2;
+    result->space_cnt = 0;
 
     int allowed_space = 1;
     if (is_cont) allowed_space = 0;
 
-    for (bool reversed = false;; reversed = true) {
+    // for (bool reversed = false;; reversed = true) {
+    for (bool reversed: {false, true}) {
         while (true) {
             // Move
-            cr += dr; cc += dc;
+            r_cnt += dr; c_cnt += dc;
 
             // Validate position
-            // if (cr < 0 || cr >= G_B_SIZE || cc < 0 || cc >= G_B_SIZE) break;
-            if (pos_check(cr, cc)) break;
+            // if (r_cnt < 0 || r_cnt >= G_B_SIZE || c_cnt < 0 || c_cnt >= G_B_SIZE) break;
+            if (pos_check(r_cnt, c_cnt)){break;}
 
             // Get spot value
-            // int spot = state[G_B_SIZE * cr + cc];
-            int spot = state[_2d_1d(cr, cc)];
+            // int spot = state[G_B_SIZE * r_cnt + c_cnt];
+            int spot = state[_2d_1d(r_cnt, c_cnt)];
 
             // Empty spots
             if (spot == 0) {
-                if (allowed_space > 0 && Util::get_spot(state, cr + dr, cc + dc) == player) {
-                    allowed_space--; result->space_cnt++;
+                if (allowed_space > 0 && Util::get_spot(state, r_cnt + dr, c_cnt + dc) == player) {
+                    allowed_space--; 
+                    result->space_cnt++;
                     continue;
                 } else {
                     result->block_cnt--;
@@ -633,16 +635,18 @@ void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int play
             }
 
             // Another player
-            if (spot != player) break;
+            if (spot != player){break;}
 
             // Current player
             result->len++;
         }
 
         // Reverse direction and continue (just once)
-        if (reversed) break;
-        cr = r; cc = c;
-        dr = -dr; dc = -dc;
+        // if (reversed){break;}
+        r_cnt = r; 
+        c_cnt = c;
+        dr = -dr; 
+        dc = -dc;
     }
 
     // More than 5 pieces in a row is equivalent to 5 pieces

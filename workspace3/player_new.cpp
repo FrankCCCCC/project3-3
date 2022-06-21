@@ -69,8 +69,11 @@ if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE){\
 }\
 
 inline bool pos_check(int r, int c){
-    if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE){return false;}
-    return true;
+    return (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE);
+}
+
+inline int _2d_1d(int r, int c){
+    return G_B_SIZE * r + c;
 }
 
 // Unify coordinate expression
@@ -206,13 +209,15 @@ class Util {
     static inline char get_spot(const char *state, int r, int c) {
         // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return -1;
         POS_CHECK(r, c, -1)
-        return state[G_B_SIZE * r + c];
+        // return state[G_B_SIZE * r + c];
+           return state[_2d_1d(r, c)];
     }
 
     static inline bool set_spot(char *state, int r, int c, char value) {
         // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return false;
         POS_CHECK(r, c, false)
-        state[G_B_SIZE * r + c] = value;
+        // state[G_B_SIZE * r + c] = value;
+        state[_2d_1d(r, c)] = value;
         return true;
     }
 
@@ -265,10 +270,14 @@ class Eval {
     };
     // A single direction pattern
     struct Pattern {
-        char min_occurrence;  // Minimum number of occurrences to match
-        char len;          // Length of pattern (pieces in a row)
-        char block_cnt;     // Number of ends blocked by edge or the other player (0-2)
-        char space_cnt;     // Number of spaces in the middle of pattern (-1: Ignore value)
+        // Minimum number of occurrences to match
+        char min_occur;
+        // Length of pattern (pieces in a row)
+        char len;
+        // Number of ends blocked by edge or the other player (0-2)
+        char block_cnt;
+        // Number of spaces in the middle of pattern (-1: Ignore value)
+        char space_cnt;
     };
     // An array of preset patterns
     static Pattern *preset_patterns;
@@ -287,7 +296,7 @@ class Eval {
     static int eval_measures(Measurement *all_direction_measurement);
 
     // Tries to match a set of patterns with an all-direction measurement
-    static int matchPattern(Measurement *all_direction_measurement,
+    static int match_pattern(Measurement *all_direction_measurement,
                             Pattern *patterns);
 
     // Measures all 4 directions
@@ -509,7 +518,7 @@ int Eval::eval_measures(Measurement *all_direction_measurement) {
     int sc = 0;
     int size = preset_patterns_size;
 
-    // Add to sc by length on each direction
+    // Add to score by length on each direction
     // Find the maximum length in ADM and skip some patterns
     int max_measured_len = 0;
     for (int i = 0; i < M_DIR_NUM; i++) {
@@ -521,7 +530,7 @@ int Eval::eval_measures(Measurement *all_direction_measurement) {
 
     // Loop through and try to match all preset patterns
     for (int i = start_pattern; i < size; ++i) {
-        sc += matchPattern(all_direction_measurement, &preset_patterns[2 * i]) * preset_scores[i];
+        sc += match_pattern(all_direction_measurement, &preset_patterns[2 * i]) * preset_scores[i];
 
         // Only match one threatening pattern
         if (sc >= kEvalThreateningScore) break;
@@ -530,13 +539,12 @@ int Eval::eval_measures(Measurement *all_direction_measurement) {
     return sc;
 }
 
-int Eval::matchPattern(Measurement *all_direction_measurement,
-                              Pattern *patterns) {
+int Eval::match_pattern(Measurement *all_direction_measurement, Pattern *patterns) {
     // Check arguments
     if (all_direction_measurement == nullptr) return -1;
     if (patterns == nullptr) return -1;
 
-    // Increment PM count
+    // Increment pattern match count
     g_pattern_match_cnt++;
 
     // Initialize match_count to INT_MAX since minimum value will be output
@@ -563,7 +571,7 @@ int Eval::matchPattern(Measurement *all_direction_measurement,
         }
 
         // Consider minimum number of occurrences
-        single_pattern_match /= p.min_occurrence;
+        single_pattern_match /= p.min_occur;
 
         // Take smaller value
         match_count = match_count >= single_pattern_match ? single_pattern_match : match_count;
@@ -585,12 +593,7 @@ void Eval::gen_measures(const char *state, int r, int c, int player, bool is_con
     gen_measure(state, r, c, 1, -1, player, is_cont, &ms[3]);
 }
 
-void Eval::gen_measure(const char *state,
-                                   int r, int c,
-                                   int dr, int dc,
-                                   int player,
-                                   bool is_cont,
-                                   Eval::Measurement *result) {
+void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measurement *result) {
     // Check arguments
     // if (state == nullptr) return;
     // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
@@ -602,8 +605,8 @@ void Eval::gen_measure(const char *state,
     int cr = r, cc = c;
     result->len = 1, result->block_cnt = 2, result->space_cnt = 0;
 
-    int space_allowance = 1;
-    if (is_cont) space_allowance = 0;
+    int allowed_space = 1;
+    if (is_cont) allowed_space = 0;
 
     for (bool reversed = false;; reversed = true) {
         while (true) {
@@ -611,15 +614,17 @@ void Eval::gen_measure(const char *state,
             cr += dr; cc += dc;
 
             // Validate position
-            if (cr < 0 || cr >= G_B_SIZE || cc < 0 || cc >= G_B_SIZE) break;
+            // if (cr < 0 || cr >= G_B_SIZE || cc < 0 || cc >= G_B_SIZE) break;
+            if (pos_check(cr, cc)) break;
 
             // Get spot value
-            int spot = state[G_B_SIZE * cr + cc];
+            // int spot = state[G_B_SIZE * cr + cc];
+            int spot = state[_2d_1d(cr, cc)];
 
             // Empty spots
             if (spot == 0) {
-                if (space_allowance > 0 && Util::get_spot(state, cr + dr, cc + dc) == player) {
-                    space_allowance--; result->space_cnt++;
+                if (allowed_space > 0 && Util::get_spot(state, cr + dr, cc + dc) == player) {
+                    allowed_space--; result->space_cnt++;
                     continue;
                 } else {
                     result->block_cnt--;
@@ -665,6 +670,7 @@ void Eval::gen_patterns(Pattern **preset_patterns,
     preset_patterns_skip[1] = pattern_num;
     preset_patterns_skip[0] = pattern_num;
 
+    // Pattern = {min_occur, len, block_cnt, space_cnt}
     Pattern patterns[pattern_num * 2] = {
         {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
         {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
@@ -681,7 +687,7 @@ void Eval::gen_patterns(Pattern **preset_patterns,
         {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
     };
 
-    int scores[pattern_num] = {
+    Score scores[pattern_num] = {
         10000,
         700,
         700,
@@ -705,21 +711,30 @@ void Eval::gen_patterns(Pattern **preset_patterns,
 
     *preset_patterns_size = pattern_num;
 }
+#define WIN_COND 5
 
 int Eval::win_player(const char *state) {
-    if (state == nullptr) return 0;
-    for (int r = 0; r < G_B_SIZE; ++r) {
-        for (int c = 0; c < G_B_SIZE; ++c) {
+    // if (state == nullptr) return 0;
+    NULL_CHECK(state, 0)
+    for (int r = 0; r < G_B_SIZE; r++) {
+        for (int c = 0; c < G_B_SIZE; c++) {
             int spot = state[G_B_SIZE * r + c];
-            if (spot == 0) continue;
-            for (int dr = -1; dr <= 1; ++dr) {
-                for (int dc = -1; dc <= 1; ++dc) {
-                    if (dr == 0 && dc <= 0) continue;
-                    Measurement dm;
-                    gen_measure(state, r, c, dr, dc, spot, 1, &dm);
-                    if (dm.len >= 5) return spot;
-                }
-            }
+            if (spot == 0){continue;}
+            // for (int dr = -1; dr <= 1; dr++) {
+            //     for (int dc = -1; dc <= 1; dc++) {
+            //         if (dr == 0 && dc <= 0){continue;}
+            //         Measurement dm;
+            //         gen_measure(state, r, c, dr, dc, spot, 1, &dm);
+            //         if (dm.len >= WIN_COND){return spot;}
+            //     }
+            // }
+            // Check In 4 directions
+            Measurement m_h, m_v, m_lu, m_ru;
+            gen_measure(state, r, c, 0, 1, spot, 1, &m_h);
+            gen_measure(state, r, c, 1, 0, spot, 1, &m_v);
+            gen_measure(state, r, c, 1, 1, spot, 1, &m_lu);
+            gen_measure(state, r, c, 1, -1, spot, 1, &m_ru);
+            if (m_h.len >= WIN_COND || m_v.len >= WIN_COND || m_lu.len >= WIN_COND || m_ru.len >= WIN_COND){return spot;}
         }
     }
     return 0;

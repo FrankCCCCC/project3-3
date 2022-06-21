@@ -10,7 +10,6 @@
 #include <ctime>
 #include <algorithm>
 #include <random>
-// #include <renju_api.h>
 
 using namespace std;
 
@@ -163,7 +162,6 @@ public:
         for (int i = 0; i < b_size; i++) {
             for (int j = 0; j < b_size; j++) {
                 char c = 0;
-                // this->fin >> this->board[i][j];
                 this->fin >> c;
                 if (this->player == c) {
                     // Denote the AI player as 'O'
@@ -193,20 +191,11 @@ public:
             // Choose a random spot.
             rp.r = (rand() % this->b_size);
             rp.c = (rand() % this->b_size);
-            // if (this->board[x][y] == DC) {
-            //     pos.r = x;
-            //     pos.c = y;
-            //     this->fout << x << " " << y << std::endl;
-            //     // Remember to flush the output to ensure the last action is written to file.
-            //     this->fout.flush();
-            // }
             write_valid_spot(rp);
         }
     }
 };
 
-// const int G_B_SIZE = 15;
-// const unsigned int G_B_AREA = 225;
 unsigned int g_node_cnt = 0;
 unsigned int g_eval_cnt = 0;
 unsigned int g_pattern_match_cnt = 0;
@@ -223,33 +212,17 @@ class Util {
     }
 
     static inline char get_spot(const char *state, int r, int c) {
-        // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return -1;
         POS_CHECK(r, c, -1)
-        // return state[G_B_SIZE * r + c];
         return state[_2d_1d(r, c)];
     }
 
     static inline bool set_spot(char *state, int r, int c, char value) {
-        // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return false;
         POS_CHECK(r, c, false)
-        // state[G_B_SIZE * r + c] = value;
         state[_2d_1d(r, c)] = value;
         return true;
     }
 
     static bool remote_spot(const char *state, int r, int c);
-
-    // Game state hashing
-    // static void zobristInit(int size, uint64_t *z1, uint64_t *z2);
-    // static uint64_t zobristHash(const char *state, uint64_t *z1, uint64_t *z2);
-    // static inline void zobristToggle(uint64_t *state, uint64_t *z1, uint64_t *z2,
-    //                                  int row_size, int r, int c, int player) {
-    //     if (player == 1) {
-    //         *state ^= z1[row_size * r + c];
-    //     } else if (player == 2) {
-    //         *state ^= z2[row_size * r + c];
-    //     }
-    // }
 };
 
 class Controller {
@@ -302,11 +275,6 @@ class Eval {
     const static Pattern *PATTERNS;
     // Preset scores of each preset pattern
     const static int *PATTERN_SCORES;
-    // Loads preset patterns into memory
-    // SKIP_PATTERNS is the number of patterns to skip for a maximum
-    // measured length in an measure_4d (e.g. longest is 3 pieces
-    // in an ADM, then skip first few patterns that require 4 pieces or more).
-    // static void gen_patterns(Pattern **PATTERNS, int **PATTERN_SCORES, int *PATTERNS_NUM, int *SKIP_PATTERNS);
 
     // Evaluates measures in 4 directions
     static int eval_measures(const Measure *measure_4d);
@@ -350,20 +318,6 @@ class Negamax {
     static void search_sorted_cands(const char *state, int player, std::vector<Move> &result);
 };
 
-// class API {
-//     public:
-//     API();
-
-//     // Generate move based on a given game state
-//     static bool search_act(const char *b_raw_str, int ai_player_id,
-//                              int search_depth, int time_limit, int num_threads,
-//                              int *actual_depth, int *move_r, int *move_c, int *winning_player,
-//                              unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
-
-//     // Convert a game state string to game state binary array
-//     static void convert_board(const char *b_raw_str, char *state);
-// };
-
 bool Util::remote_spot(const char *state, int r, int c) {
     // if (state == nullptr) return false;
     NULL_CHECK(state, false)
@@ -376,30 +330,6 @@ bool Util::remote_spot(const char *state, int r, int c) {
     }
     return true;
 }
-
-// void Util::zobristInit(int size, uint64_t *z1, uint64_t *z2) {
-//     std::random_device rd;
-//     std::mt19937 gen(rd());
-//     std::uniform_int_distribution<uint64_t> d(0, UINT64_MAX);
-
-//     // Generate random values
-//     for (int i = 0; i < size; i++) {
-//         z1[i] = d(gen);
-//         z2[i] = d(gen);
-//     }
-// }
-
-// uint64_t Util::zobristHash(const char *state, uint64_t *z1, uint64_t *z2) {
-//     uint64_t hash = 0;
-//     for (int i = 0; i < G_B_AREA; i++) {
-//         if (state[i] == 1) {
-//             hash ^= z1[i];
-//         } else if (state[i] == 2) {
-//             hash ^= z2[i];
-//         }
-//     }
-//     return hash;
-// }
 
 void Controller::convert_board(const char *b_raw_str, char *state) {
     if (strlen(b_raw_str) != G_B_AREA) return;
@@ -421,20 +351,16 @@ bool Controller::search_act(const char *b_raw_str, int player, int search_depth,
     // Initialize data
     move_r = -1;
     move_c = -1;
-    // int _winning_player = 0;
     winning_player = 0;
-    // if (actual_depth != nullptr) *actual_depth = 0;
     actual_depth = 0;
 
     // Copy game state
     char state[G_B_AREA] = {0};
-    // std::memcpy(_gs, state, G_B_AREA);
     Controller::convert_board(b_raw_str, state);
 
     // Check if anyone wins the game
     winning_player = Eval::win_player(state);
     if (winning_player != 0) {
-        // if (winning_player != nullptr) *winning_player = _winning_player;
         winning_player = winning_player;
         return true;
     }
@@ -443,27 +369,12 @@ bool Controller::search_act(const char *b_raw_str, int player, int search_depth,
     Negamax::search(state, player, search_depth, time_limit, true, actual_depth, move_r, move_c, INIT_DEPTH, INC_DEPTH);
 
     // Execute the move
-    // std::memcpy(_gs, state, G_B_AREA);
     Util::set_spot(state, move_r, move_c, static_cast<char>(player));
 
     // Check if anyone wins the game
-    winning_player = Eval::win_player(state);
-
-    // Write output
-    // if (winning_player != nullptr) *winning_player = _winning_player;
-    // if (node_count != nullptr) *node_count = g_node_cnt;
-    // if (eval_count != nullptr) *eval_count = g_eval_cnt;
-    // if (pm_count != nullptr) *pm_count = g_pattern_match_cnt;
-
-    // delete[] _gs;
+    winning_player = Eval::win_player(state);;
     return true;
 }
-
-// Initialize global variables
-// Eval::Pattern *Eval::PATTERNS = nullptr;
-// int *Eval::PATTERN_SCORES = nullptr;
-// int PATTERNS_NUM = 0;
-// int SKIP_PATTERNS[6] = {0};
 
 const int Eval::PATTERNS_NUM = 11;
 const int *Eval::SKIP_PATTERNS = new int[6]{PATTERNS_NUM, PATTERNS_NUM, 10, 7, 1, 0};
@@ -515,17 +426,11 @@ int Eval::eval_state(const char *state, int player) {
 
 int Eval::eval_pos(const char *state, int r, int c, int player) {
     // Check parameters
-    // if (state == nullptr || player < 1 || player > 2) return 0;
     ERR_NULL_CHECK(state, 0)
     ERR_PLAYER_CHECK(player, 0)
 
     // Count evaluations
     ++g_eval_cnt;
-
-    // Generate preset patterns structure in memory
-    // if (PATTERNS == nullptr) {
-    //     gen_patterns(&PATTERNS, &PATTERN_SCORES, &PATTERNS_NUM, SKIP_PATTERNS);
-    // }
 
     Measure ms[M_DIR_NUM];
 
@@ -535,22 +440,6 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     gen_measures(state, r, c, player, true, ms);
     Score sc_conti = eval_measures(ms);
     return std::max(sc_non_conti, sc_conti);
-
-    // Score max_score = 0;
-    // for (bool is_cont = false;; is_cont = true) {
-    //     // Execute measurement
-    //     gen_measures(state, r, c, player, is_cont, ms);
-    //     Score sc = eval_measures(ms);
-
-    //     // Prefer continuous
-    //     // if (!is_cont) sc *= 0.9;
-
-    //     // Choose the better between continuous and non-continuous
-    //     max_score = std::max(max_score, sc);
-
-    //     if (is_cont) break;
-    // }
-    // return max_score;
 }
 
 int Eval::eval_measures(const Measure *measure_4d) {
@@ -562,7 +451,6 @@ int Eval::eval_measures(const Measure *measure_4d) {
     int max_measure_len = 0;
     for (int i = 0; i < M_DIR_NUM; i++) {
         int len = measure_4d[i].len;
-        // max_measure_len = len > max_measure_len ? len : max_measure_len;
         max_measure_len = max(len, max_measure_len);
         sc += (len - 1);
     }
@@ -580,27 +468,22 @@ int Eval::eval_measures(const Measure *measure_4d) {
 }
 
 int Eval::match_pattern(const Measure *measure_4d, const Pattern *patterns) {
-    // Check arguments
-    // if (measure_4d == nullptr) return -1;
-    // if (patterns == nullptr) return -1;
     NULL_CHECK(measure_4d, -1);
     NULL_CHECK(patterns, -1);
 
-    // Increment pattern match count
+    // Increase pattern match count
     g_pattern_match_cnt++;
 
     // Initialize res_match_cnt to INT_MAX since minimum value will be output
     int res_match_cnt = INT_MAX, pat_i_match_cnt = 0;
 
-    // Currently allows maximum 2 patterns
+    // Scan several patterns, the number of scanning patterns is defined at PATTERN_PAIR_CNT
     for (int i = 0; i < PATTERN_PAIR_CNT; i++) {
         Eval::Pattern p = patterns[i];
         if (p.len == 0) break;
-
-        // Initialize counter
         pat_i_match_cnt = 0;
 
-        // Loop through 4 directions
+        // Scan through 4 directions
         for (int j = 0; j < M_DIR_NUM; j++) {
             auto m = measure_4d[j];
 
@@ -610,24 +493,20 @@ int Eval::match_pattern(const Measure *measure_4d, const Pattern *patterns) {
             }
         }
 
-        // Consider minimum number of occurrences
+        // Consider smallest count of occurrences
         pat_i_match_cnt /= p.min_occur;
 
-        // Take smaller value
-        // res_match_cnt = res_match_cnt >= pat_i_match_cnt ? pat_i_match_cnt : res_match_cnt;
+        // Choose smaller value
         res_match_cnt = min(res_match_cnt, pat_i_match_cnt);
     }
     return res_match_cnt;
 }
 
 void Eval::gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measure *ms) {
-    // Check arguments
-    // if (state == nullptr) return;
-    // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
     ERR_NULL_CHECK(state,)
     ERR_POS_CHECK(r,c,)
 
-    // Measure 4 directions
+    // Scan 4 directions
     gen_measure(state, r, c, Eval::MEASURE_DIR_H, player, is_cont, ms[0]);
     gen_measure(state, r, c, Eval::MEASURE_DIR_LU, player, is_cont, ms[1]);
     gen_measure(state, r, c, Eval::MEASURE_DIR_V, player, is_cont, ms[2]);
@@ -635,10 +514,6 @@ void Eval::gen_measures(const char *state, int r, int c, int player, bool is_con
 }
 
 void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bool is_cont, Eval::Measure &res) {
-    // Check arguments
-    // if (state == nullptr) return;
-    // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
-    // if (dr == 0 && dc == 0) return;
     if(dir < MEASURE_DIR_H || dir > MEASURE_DIR_RU){return;}
     ERR_NULL_CHECK(state,)
     ERR_POS_CHECK(r,c,)
@@ -652,6 +527,7 @@ void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bo
     int allowed_space = 1;
     if (is_cont) allowed_space = 0;
 
+    // Set up direction
     int dr = 0, dc = 0;
     switch(dir){
         case(Eval::MEASURE_DIR_H):
@@ -668,18 +544,15 @@ void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bo
             break;
     }
 
-    // for (bool reversed = false;; reversed = true) {
-    for (bool reversed: {false, true}) {
+    for (int i = 0; i < 2; i++) {
         while (true) {
-            // Move
+            // Shift
             r_cnt += dr; c_cnt += dc;
 
             // Validate position
-            // if (r_cnt < 0 || r_cnt >= G_B_SIZE || c_cnt < 0 || c_cnt >= G_B_SIZE) break;
             if (pos_check(r_cnt, c_cnt)){break;}
 
             // Get spot value
-            // int spot = state[G_B_SIZE * r_cnt + c_cnt];
             int spot = state[_2d_1d(r_cnt, c_cnt)];
 
             // Empty spots
@@ -701,15 +574,14 @@ void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bo
             res.len++;
         }
 
-        // Reverse direction and continue (just once)
-        // if (reversed){break;}
+        // Reverse direction
         dr = -dr; 
         dc = -dc;
         r_cnt = r; 
         c_cnt = c;
     }
 
-    // More than 5 pieces in a row is equivalent to 5 pieces
+    // If there are more than 5 piece in a row, take it as 5 
     if (res.len >= 5) {
         if (res.space_cnt == 0) {
             res.block_cnt = 0;
@@ -721,77 +593,14 @@ void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bo
     }
 }
 
-// void Eval::gen_patterns(Pattern **PATTERNS,
-//                                          int **PATTERN_SCORES,
-//                                          int *PATTERNS_NUM,
-//                                          int *SKIP_PATTERNS) {
-//     const int pattern_num = 11;
-//     SKIP_PATTERNS[5] = 0;
-//     SKIP_PATTERNS[4] = 1;
-//     SKIP_PATTERNS[3] = 7;
-//     SKIP_PATTERNS[2] = 10;
-
-//     SKIP_PATTERNS[1] = pattern_num;
-//     SKIP_PATTERNS[0] = pattern_num;
-
-//     // Pattern = {min_occur, len, block_cnt, space_cnt}
-//     Pattern patterns[pattern_num * 2] = {
-//         {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
-//         {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
-//         {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
-//         {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
-//         {1, 4,  1,  0}, {1, 4, -1,  1},  // 700
-//         {1, 4,  1,  0}, {1, 3,  0, -1},  // 500
-//         {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
-//         {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
-//         // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
-//         // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
-//         {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
-//         {1, 3,  0, -1}, {0, 0,  0,  0},  // 20
-//         {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
-//     };
-
-//     Score scores[pattern_num] = {
-//         10000,
-//         700,
-//         700,
-//         700,
-//         700,
-//         500,
-//         500,
-//         300,
-//         // 1,
-//         // 1,
-//         50,
-//         20,
-//         9
-//     };
-
-//     *PATTERNS = new Pattern[pattern_num * 2];
-//     *PATTERN_SCORES   = new int[pattern_num];
-
-//     memcpy(*PATTERNS, patterns, sizeof(Pattern) * pattern_num * 2);
-//     memcpy(*PATTERN_SCORES, scores, sizeof(int) * pattern_num);
-
-//     *PATTERNS_NUM = pattern_num;
-// }
-
 int Eval::win_player(const char *state) {
-    // if (state == nullptr) return 0;
     NULL_CHECK(state, 0)
     for (int r = 0; r < G_B_SIZE; r++) {
         for (int c = 0; c < G_B_SIZE; c++) {
             int spot = state[G_B_SIZE * r + c];
             if (spot == 0){continue;}
-            // for (int dr = -1; dr <= 1; dr++) {
-            //     for (int dc = -1; dc <= 1; dc++) {
-            //         if (dr == 0 && dc <= 0){continue;}
-            //         Measure dm;
-            //         gen_measure(state, r, c, dr, dc, spot, 1, &dm);
-            //         if (dm.len >= WIN_COND){return spot;}
-            //     }
-            // }
-            // Check In 4 directions
+            
+            // Check in 4 directions
             Measure m_h, m_v, m_lu, m_ru;
             gen_measure(state, r, c, Eval::MEASURE_DIR_H, spot, true, m_h);
             gen_measure(state, r, c, Eval::MEASURE_DIR_V, spot, true, m_v);
@@ -872,12 +681,6 @@ ZobristHash::ClassInit ZobristHash::Initialize;
 typedef unordered_map<Hash, Score> STATE_MAP;
 
 void Negamax::search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int &actual_depth, int &move_r, int &move_c, int init_depth=INIT_DEPTH, int inc_depth=INC_DEPTH) {
-    // Check arguments
-    // if (state == nullptr ||
-    //     player < 1 || player > 2 ||
-    //     depth == 0 || depth < -1 ||
-    //     time_limit < 0) return;
-
     ERR_NULL_CHECK(state,)
     ERR_PLAYER_CHECK(player,)
     if (depth == 0 || depth < -1 || time_limit < 0){return;}
@@ -897,7 +700,6 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
 
     // Fixed depth or iterative deepening
     if (depth > 0) {
-        // if (actual_depth != nullptr) *actual_depth = depth;
         actual_depth = depth;
         negamax(ng_state, player, depth, depth, enable_ab_pruning, alpha, beta, move_r, move_c);
     } else {
@@ -926,11 +728,9 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
             }
         }
     }
-    // delete[] ng_state;
 }
 
 int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c) {
-    // Count node
     ++g_node_cnt;
 
     int max_score = INT_MIN;
@@ -947,8 +747,6 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     // End directly if only one move or a winning move is found
     if (moves_player.size() == 1 || moves_player[0].heuristic_val >= kEvalWinningScore) {
         auto move = moves_player[0];
-        // if (move_r != nullptr) *move_r = move.r;
-        // if (move_c != nullptr) *move_c = move.c;
         move_r = move.r; move_c = move.c;
         return move.heuristic_val;
     }
@@ -1027,8 +825,6 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         // Update maximum score
         if (move.actual_score > max_score) {
             max_score = move.actual_score;
-            // if (move_r != nullptr) *move_r = move.r;
-            // if (move_c != nullptr) *move_c = move.c;
             move_r = move.r; move_c = move.c;
         }
 
@@ -1046,8 +842,6 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         int b_score = blocking_move.actual_score;
         if (b_score == 0) b_score = 1;
         if ((max_score - b_score) / static_cast<float>(std::abs(b_score)) < 0.2) {
-            // if (move_r != nullptr) *move_r = blocking_move.r;
-            // if (move_c != nullptr) *move_c = blocking_move.c;
             move_r = blocking_move.r; move_c = blocking_move.c;
             max_score = blocking_move.actual_score;
         }
@@ -1056,7 +850,7 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
 }
 
 void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
-    // Find an extent to reduce unnecessary calls to Util::remote_spot
+    // Find the box that is extended from the occupied spots in REMOTE_RNG
     l_r = INT_MAX, l_c = INT_MAX, r_r = INT_MIN, u_c = INT_MIN;
     for (int r = 0; r < G_B_SIZE; r++) {
         for (int c = 0; c < G_B_SIZE; c++) {
@@ -1073,16 +867,11 @@ void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
     l_c = max(0, l_c - REMOTE_RNG);
     r_r = min(r_r + REMOTE_RNG, G_B_SIZE - 1);
     u_c = min(u_c + REMOTE_RNG, G_B_SIZE - 1);
-
-    // if (l_r - REMOTE_RNG < 0) l_r = REMOTE_RNG;
-    // if (l_c - REMOTE_RNG < 0) l_c = REMOTE_RNG;
-    // if (r_r + REMOTE_RNG >= G_B_SIZE) r_r = G_B_SIZE - REMOTE_RNG - 1;
-    // if (u_c + REMOTE_RNG >= G_B_SIZE) u_c = G_B_SIZE - REMOTE_RNG - 1;
 }
 
 void Negamax::search_sorted_cands(const char *state, int player, std::vector<Move> &result) {
     // Clear and previous result
-    result.clear();
+    // result.clear();
     int l_r = 0, l_c = 0, r_r = 0, u_c = 0;
     active_area(state, l_r, l_c, r_r, u_c);
 
@@ -1108,41 +897,6 @@ void Negamax::search_sorted_cands(const char *state, int player, std::vector<Mov
     }
     std::sort(result.begin(), result.end());
 }
-
-// bool API::search_act(const char *b_raw_str, int ai_player_id,
-//                             int search_depth, int time_limit, int num_threads,
-//                             int *actual_depth, int *move_r, int *move_c, int *winning_player,
-//                             unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count) {
-//     // Check input data
-//     if (strlen(b_raw_str) != G_B_AREA ||
-//         ai_player_id  < 1 || ai_player_id > 2 ||
-//         search_depth == 0 || search_depth > 10 ||
-//         time_limit < 0    ||
-//         num_threads  < 1) {
-//         return false;
-//     }
-
-//     // Copy game state
-//     char *state = new char[G_B_AREA];
-//     std::memcpy(state, b_raw_str, G_B_AREA);
-
-//     // Convert from string
-//     convert_board(b_raw_str, state);
-
-//     // Generate move
-//     Controller::search_act(state, ai_player_id, search_depth, time_limit, *actual_depth, *move_r, *move_c, *winning_player);
-
-//     // Release memory
-//     delete[] state;
-//     return true;
-// }
-
-// void API::convert_board(const char *b_raw_str, char *state) {
-//     if (strlen(b_raw_str) != G_B_AREA) return;
-//     for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
-//         state[i] = b_raw_str[i] - '0';
-//     }
-// }
 
 int main(){
     io.read_board();

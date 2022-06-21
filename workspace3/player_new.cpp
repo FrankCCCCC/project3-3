@@ -206,13 +206,16 @@ unsigned int g_cc_1 = 0;
 class Util {
     public:
     Util();
-    ~Util();
+
+    static inline char& access_spot(char *state, int r, int c){
+        return state[_2d_1d(r, c)];
+    }
 
     static inline char get_spot(const char *state, int r, int c) {
         // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return -1;
         POS_CHECK(r, c, -1)
         // return state[G_B_SIZE * r + c];
-           return state[_2d_1d(r, c)];
+        return state[_2d_1d(r, c)];
     }
 
     static inline bool set_spot(char *state, int r, int c, char value) {
@@ -241,7 +244,6 @@ class Util {
 class Controller {
     public:
     Controller();
-    ~Controller();
     static void search_act(const char *state, int player, int search_depth, int time_limit,
                              int *actual_depth, int *move_r, int *move_c, int *winning_player,
                              unsigned int *node_count, unsigned int *eval_count, unsigned int *pm_count);
@@ -253,7 +255,10 @@ class Controller {
 class Eval {
     public:
     Eval();
-    ~Eval();
+    const static char MEASURE_DIR_H = 0;
+    const static char MEASURE_DIR_LU = 1;
+    const static char MEASURE_DIR_V = 2;
+    const static char MEASURE_DIR_RU = 3;
 
     // Evaluate the entire game state as a player
     static int eval_state(const char *state, int player);
@@ -294,7 +299,7 @@ class Eval {
     // static void gen_patterns(Pattern **PATTERNS, int **PATTERN_SCORES, int *PATTERNS_NUM, int *SKIP_PATTERNS);
 
     // Evaluates measures in 4 directions
-    static int eval_measures(Measure *measure_4d);
+    static int eval_measures(const Measure *measure_4d);
 
     // Match the patterns to measures in 4 directions
     static int match_pattern(const Measure *measure_4d, const Pattern *patterns);
@@ -303,15 +308,14 @@ class Eval {
     static void gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measure *ms);
 
     // Measure a single direction
-    static void gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measure *result);
+    static void gen_measure(const char *state, int r, int c, char dir, int player, bool is_cont, Eval::Measure &res);
 };
 
 class Negamax {
     public:
     Negamax();
-    ~Negamax();
 
-    static void negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c);
+    static void search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c);
 
     private:
     // Preset search breadth
@@ -331,18 +335,17 @@ class Negamax {
         }
     };
 
-    static int search(char *state, int player, int initial_depth, int depth,
+    static int negamax(char *state, int player, int initial_depth, int depth,
                                 bool enable_ab_pruning, int alpha, int beta,
                                 int *move_r, int *move_c);
 
     // Search possible moves based on a given state, sorted by heuristic values.
-    static void searchMovesOrdered(const char *state, int player, std::vector<Move> *result);
+    static void search_sorted_cands(const char *state, int player, std::vector<Move> &result);
 };
 
 class API {
     public:
     API();
-    ~API();
 
     // Generate move based on a given game state
     static bool search_act(const char *b_raw_str, int ai_player_id,
@@ -424,7 +427,7 @@ void Controller::search_act(const char *state, int player, int search_depth, int
     std::memcpy(_gs, state, G_B_AREA);
 
     // Run negamax
-    Negamax::negamax(_gs, player, search_depth, time_limit, true, actual_depth, move_r, move_c);
+    Negamax::search(_gs, player, search_depth, time_limit, true, actual_depth, move_r, move_c);
 
     // Execute the move
     std::memcpy(_gs, state, G_B_AREA);
@@ -536,7 +539,7 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     // return max_score;
 }
 
-int Eval::eval_measures(Measure *measure_4d) {
+int Eval::eval_measures(const Measure *measure_4d) {
     int sc = 0;
     // int size = PATTERNS_NUM;
 
@@ -611,28 +614,45 @@ void Eval::gen_measures(const char *state, int r, int c, int player, bool is_con
     ERR_POS_CHECK(r,c,)
 
     // Measure 4 directions
-    gen_measure(state, r, c, 0,  1, player, is_cont, &ms[0]);
-    gen_measure(state, r, c, 1,  1, player, is_cont, &ms[1]);
-    gen_measure(state, r, c, 1,  0, player, is_cont, &ms[2]);
-    gen_measure(state, r, c, 1, -1, player, is_cont, &ms[3]);
+    gen_measure(state, r, c, Eval::MEASURE_DIR_H, player, is_cont, ms[0]);
+    gen_measure(state, r, c, Eval::MEASURE_DIR_LU, player, is_cont, ms[1]);
+    gen_measure(state, r, c, Eval::MEASURE_DIR_V, player, is_cont, ms[2]);
+    gen_measure(state, r, c, Eval::MEASURE_DIR_RU, player, is_cont, ms[3]);
 }
 
-void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int player, bool is_cont, Eval::Measure *result) {
+void Eval::gen_measure(const char *state, int r, int c, char dir, int player, bool is_cont, Eval::Measure &res) {
     // Check arguments
     // if (state == nullptr) return;
     // if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE) return;
-    if (dr == 0 && dc == 0) return;
+    // if (dr == 0 && dc == 0) return;
+    if(dir < MEASURE_DIR_H || dir > MEASURE_DIR_RU){return;}
     ERR_NULL_CHECK(state,)
     ERR_POS_CHECK(r,c,)
 
     // Initialization
     int r_cnt = r, c_cnt = c;
-    result->len = 1;
-    result->block_cnt = 2;
-    result->space_cnt = 0;
+    res.space_cnt = 0;
+    res.block_cnt = 2;
+    res.len = 1;
 
     int allowed_space = 1;
     if (is_cont) allowed_space = 0;
+
+    int dr = 0, dc = 0;
+    switch(dir){
+        case(Eval::MEASURE_DIR_H):
+            dr = 0, dc = 1;
+            break;
+        case(Eval::MEASURE_DIR_LU):
+            dr = 1, dc = 1;
+            break;
+        case(Eval::MEASURE_DIR_V):
+            dr = 1, dc = 0;
+            break;
+        case(Eval::MEASURE_DIR_RU):
+            dr = 1, dc = -1;
+            break;
+    }
 
     // for (bool reversed = false;; reversed = true) {
     for (bool reversed: {false, true}) {
@@ -652,10 +672,10 @@ void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int play
             if (spot == 0) {
                 if (allowed_space > 0 && Util::get_spot(state, r_cnt + dr, c_cnt + dc) == player) {
                     allowed_space--; 
-                    result->space_cnt++;
+                    res.space_cnt++;
                     continue;
                 } else {
-                    result->block_cnt--;
+                    res.block_cnt--;
                     break;
                 }
             }
@@ -664,25 +684,25 @@ void Eval::gen_measure(const char *state, int r, int c, int dr, int dc, int play
             if (spot != player){break;}
 
             // Current player
-            result->len++;
+            res.len++;
         }
 
         // Reverse direction and continue (just once)
         // if (reversed){break;}
-        r_cnt = r; 
-        c_cnt = c;
         dr = -dr; 
         dc = -dc;
+        r_cnt = r; 
+        c_cnt = c;
     }
 
     // More than 5 pieces in a row is equivalent to 5 pieces
-    if (result->len >= 5) {
-        if (result->space_cnt == 0) {
-            result->len = 5;
-            result->block_cnt = 0;
+    if (res.len >= 5) {
+        if (res.space_cnt == 0) {
+            res.block_cnt = 0;
+            res.len = 5;
         } else {
-            result->len = 4;
-            result->block_cnt = 1;
+            res.block_cnt = 1;
+            res.len = 4;
         }
     }
 }
@@ -759,10 +779,10 @@ int Eval::win_player(const char *state) {
             // }
             // Check In 4 directions
             Measure m_h, m_v, m_lu, m_ru;
-            gen_measure(state, r, c, 0, 1, spot, 1, &m_h);
-            gen_measure(state, r, c, 1, 0, spot, 1, &m_v);
-            gen_measure(state, r, c, 1, 1, spot, 1, &m_lu);
-            gen_measure(state, r, c, 1, -1, spot, 1, &m_ru);
+            gen_measure(state, r, c, Eval::MEASURE_DIR_H, spot, true, m_h);
+            gen_measure(state, r, c, Eval::MEASURE_DIR_V, spot, true, m_v);
+            gen_measure(state, r, c, Eval::MEASURE_DIR_LU, spot, true, m_lu);
+            gen_measure(state, r, c, Eval::MEASURE_DIR_RU, spot, true, m_ru);
             if (m_h.len >= WIN_COND || m_v.len >= WIN_COND || m_lu.len >= WIN_COND || m_ru.len >= WIN_COND){return spot;}
         }
     }
@@ -785,7 +805,7 @@ int Negamax::presetSearchBreadth[5] = {17, 7, 5, 3, 3};
 // prefers closer advantages
 #define kScoreDecayFactor 0.95f
 
-void Negamax::negamax(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c) {
+void Negamax::search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int *actual_depth, int *move_r, int *move_c) {
     // Check arguments
     if (state == nullptr ||
         player < 1 || player > 2 ||
@@ -806,7 +826,7 @@ void Negamax::negamax(const char *state, int player, int depth, int time_limit, 
     // Fixed depth or iterative deepening
     if (depth > 0) {
         if (actual_depth != nullptr) *actual_depth = depth;
-        search(_gs, player, depth, depth, enable_ab_pruning,
+        negamax(_gs, player, depth, depth, enable_ab_pruning,
                          INT_MIN / 2, INT_MAX / 2, move_r, move_c);
     } else {
         // Iterative deepening
@@ -817,8 +837,8 @@ void Negamax::negamax(const char *state, int player, int depth, int time_limit, 
             // Reset game state
             memcpy(_gs, state, G_B_AREA);
 
-            // Execute negamax
-            search(_gs, player, d, d, enable_ab_pruning,
+            // Execute search
+            negamax(_gs, player, d, d, enable_ab_pruning,
                              INT_MIN / 2, INT_MAX / 2, move_r, move_c);
 
             // Times
@@ -835,9 +855,7 @@ void Negamax::negamax(const char *state, int player, int depth, int time_limit, 
     delete[] _gs;
 }
 
-int Negamax::search(char *state, int player, int initial_depth, int depth,
-                                     bool enable_ab_pruning, int alpha, int beta,
-                                     int *move_r, int *move_c) {
+int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int *move_r, int *move_c) {
     // Count node
     ++g_node_cnt;
 
@@ -846,8 +864,8 @@ int Negamax::search(char *state, int player, int initial_depth, int depth,
 
     // Search and sort possible moves
     std::vector<Move> moves_player, moves_opponent, candidate_moves;
-    searchMovesOrdered(state, player, &moves_player);
-    searchMovesOrdered(state, opponent, &moves_opponent);
+    search_sorted_cands(state, player, moves_player);
+    search_sorted_cands(state, opponent, moves_opponent);
 
     // End if no move could be performed
     if (moves_player.size() == 0) return 0;
@@ -904,7 +922,7 @@ int Negamax::search(char *state, int player, int initial_depth, int depth,
 
         // Run negamax recursively
         int sc = 0;
-        if (depth > 1) sc = search(state,                 // Game state
+        if (depth > 1) sc = negamax(state,                 // Game state
                                                 opponent,           // Change player
                                                 initial_depth,      // Initial depth
                                                 depth - 1,          // Reduce depth by 1
@@ -930,7 +948,7 @@ int Negamax::search(char *state, int player, int initial_depth, int depth,
         // Restore
         Util::set_spot(state, move.r, move.c, 0);
 
-        // Update maximum sc
+        // Update maximum score
         if (move.actual_score > max_score) {
             max_score = move.actual_score;
             if (move_r != nullptr) *move_r = move.r;
@@ -959,31 +977,40 @@ int Negamax::search(char *state, int player, int initial_depth, int depth,
     return max_score;
 }
 
-void Negamax::searchMovesOrdered(const char *state, int player, std::vector<Move> *result) {
-    // Clear and previous result
-    result->clear();
-
+void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
     // Find an extent to reduce unnecessary calls to Util::remote_spot
-    int min_r = INT_MAX, min_c = INT_MAX, max_r = INT_MIN, max_c = INT_MIN;
-    for (int r = 0; r < G_B_SIZE; ++r) {
-        for (int c = 0; c < G_B_SIZE; ++c) {
+    l_r = INT_MAX, l_c = INT_MAX, r_r = INT_MIN, u_c = INT_MIN;
+    for (int r = 0; r < G_B_SIZE; r++) {
+        for (int c = 0; c < G_B_SIZE; c++) {
             if (state[G_B_SIZE * r + c] != 0) {
-                if (r < min_r) min_r = r;
-                if (c < min_c) min_c = c;
-                if (r > max_r) max_r = r;
-                if (c > max_c) max_c = c;
+                if (r < l_r) l_r = r;
+                if (c < l_c) l_c = c;
+                if (r > r_r) r_r = r;
+                if (c > u_c) u_c = c;
             }
         }
     }
 
-    if (min_r - 2 < 0) min_r = 2;
-    if (min_c - 2 < 0) min_c = 2;
-    if (max_r + 2 >= G_B_SIZE) max_r = G_B_SIZE - 3;
-    if (max_c + 2 >= G_B_SIZE) max_c = G_B_SIZE - 3;
+    l_r = max(0, l_r - REMOTE_RNG);
+    l_c = max(0, l_c - REMOTE_RNG);
+    r_r = min(r_r + REMOTE_RNG, G_B_SIZE - 1);
+    u_c = min(u_c + REMOTE_RNG, G_B_SIZE - 1);
+
+    // if (l_r - REMOTE_RNG < 0) l_r = REMOTE_RNG;
+    // if (l_c - REMOTE_RNG < 0) l_c = REMOTE_RNG;
+    // if (r_r + REMOTE_RNG >= G_B_SIZE) r_r = G_B_SIZE - REMOTE_RNG - 1;
+    // if (u_c + REMOTE_RNG >= G_B_SIZE) u_c = G_B_SIZE - REMOTE_RNG - 1;
+}
+
+void Negamax::search_sorted_cands(const char *state, int player, std::vector<Move> &result) {
+    // Clear and previous result
+    result.clear();
+    int l_r = 0, l_c = 0, r_r = 0, u_c = 0;
+    active_area(state, l_r, l_c, r_r, u_c);
 
     // Loop through all cells
-    for (int r = min_r - 2; r <= max_r + 2; ++r) {
-        for (int c = min_c - 2; c <= max_c + 2; ++c) {
+    for (int r = l_r; r <= r_r; r++) {
+        for (int c = l_c; c <= u_c; c++) {
             // Consider only empty cells
             if (state[G_B_SIZE * r + c] != 0) continue;
 
@@ -998,10 +1025,10 @@ void Negamax::searchMovesOrdered(const char *state, int player, std::vector<Move
             m.heuristic_val = Eval::eval_pos(state, r, c, player);
 
             // Add move
-            result->push_back(m);
+            result.push_back(m);
         }
     }
-    std::sort(result->begin(), result->end());
+    std::sort(result.begin(), result.end());
 }
 
 bool API::search_act(const char *b_raw_str, int ai_player_id,

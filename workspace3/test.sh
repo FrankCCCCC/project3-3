@@ -1,4 +1,5 @@
 make
+cp player_new ../play_ground1
 cp player_new ../play_ground2
 cp player_new ../play_ground3
 cp player_new ../play_ground4

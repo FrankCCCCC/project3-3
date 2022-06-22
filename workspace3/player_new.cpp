@@ -29,6 +29,8 @@ typedef int Score;
 #define PATTERN_PAIR_CNT 2
 #define INIT_DEPTH 6
 #define INC_DEPTH 2
+// -1 for all threats
+#define WATCH_THREAT_CNT 2
 
 #define INFO(s)\
     std::cout << s << endl;\
@@ -67,6 +69,11 @@ if (r < 0 || r >= G_B_SIZE || c < 0 || c >= G_B_SIZE){\
 
 #define NULL_CHECK(p, ret)\
 if(p == nullptr){\
+    return ret;\
+}\
+
+#define PLAYER_CHECK(p, ret)\
+if(player != 1 && player != 2){\
     return ret;\
 }\
 
@@ -332,17 +339,16 @@ bool Util::remote_spot(const char *state, int r, int c) {
 }
 
 void Controller::convert_board(const char *b_raw_str, char *state) {
-    if (strlen(b_raw_str) != G_B_AREA) return;
+    // if (strlen(b_raw_str) != G_B_AREA) return;
     for (int i = 0; i < static_cast<int>(G_B_AREA); i++) {
         state[i] = b_raw_str[i] - '0';
     }
 }
 bool Controller::search_act(const char *b_raw_str, int player, int search_depth, int time_limit, int &actual_depth, int &move_r, int &move_c, int &winning_player) {
     // Check arguments
-    if (b_raw_str == nullptr ||
-        player  < 1 || player > 2 ||
-        search_depth == 0 || search_depth > 10 ||
-        time_limit < 0) return false;
+    if (search_depth == 0 || search_depth > 10 || time_limit < 0){return false;}
+    NULL_CHECK(b_raw_str, false)
+    ERR_PLAYER_CHECK(player, false)
 
     // Initialize counters
     g_eval_cnt = 0;
@@ -382,12 +388,14 @@ const int *Eval::SKIP_PATTERNS = new int[6]{PATTERNS_NUM, PATTERNS_NUM, 10, 7, 1
 const Eval::Pattern *Eval::PATTERNS = new Eval::Pattern[PATTERNS_NUM * 2]{
         {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
         {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
+        // Threats-----------------------------
         {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
         {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
         {1, 4,  1,  0}, {1, 4, -1,  1},  // 700
         {1, 4,  1,  0}, {1, 3,  0, -1},  // 500
         {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
         {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
+        // Threats-----------------------------
         // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
         // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
         {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
@@ -444,7 +452,6 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
 
 int Eval::eval_measures(const Measure *measure_4d) {
     int sc = 0;
-    // int size = PATTERNS_NUM;
 
     // Add to score by length on each direction
     // Find the maximum length in measure_4d and skip some patterns
@@ -618,14 +625,12 @@ int Eval::win_player(const char *state) {
 // Or vice versa
 int Negamax::search_width[5] = {17, 7, 5, 3, 3};
 
-// Estimated average branching factor for iterative deepening
+// Est. branch factor for iterative pruning
 #define AVG_BRANCH_FACTOR 3
-
-// Maximum depth for iterative deepening
+// Depth limit for iterative pruning
 #define MAX_DEPTH 16
 
-// SCORE_DECAY decays score each layer so the algorithm
-// prefers closer advantages
+// SCORE_DECAY decays the score by the depth of the game tree, encourage to explore shorter path
 #define SCORE_DECAY 0.95f
 
 typedef uint64_t ZbsHash;
@@ -690,11 +695,11 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
     memcpy(ng_state, state, G_B_AREA);
 
     // Speedup first move
-    int empty_cnt = 0;
+    int occupied_cnt = 0;
     for (int i = 0; i < G_B_AREA; i++){
-        if (ng_state[i] != 0){empty_cnt++;}
+        if (ng_state[i] != 0){occupied_cnt++;}
     }
-    if (empty_cnt <= 2){depth = INIT_DEPTH;}
+    if (occupied_cnt <= 2){depth = INIT_DEPTH;}
 
     int alpha = INT_MIN / 2, beta = INT_MAX / 2;
 
@@ -729,8 +734,6 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
         }
     }
 }
-// -1 for all threats
-#define WATCH_THREAT 2
 int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c) {
     ++g_node_cnt;
 
@@ -746,21 +749,21 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     if (mvs_player.size() == 0) return 0;
 
     // End directly if only one move or a winning move is found
-    if (mvs_player.size() == 1 || mvs_player[0].score >= WIN_SCORE_LIMIT) {
-        auto move = mvs_player[0];
+    if (mvs_player.size() == 1 || (mvs_player.size() > 0 && mvs_player.at(0).score >= WIN_SCORE_LIMIT)) {
+        auto move = mvs_player.at(0);
         move_r = move.r; move_c = move.c;
         return move.score;
     }
 
-    // If opponent has threatening moves, consider blocking them first
+    // If opponent poses a threat, add to candidate moves first
     bool block_opn = false;
     int tmp_size = static_cast<int>(mvs_opn.size());
-    if(WATCH_THREAT > -1){tmp_size = min(tmp_size, WATCH_THREAT);}
+    if(WATCH_THREAT_CNT > -1){tmp_size = min(tmp_size, WATCH_THREAT_CNT);}
     // int tmp_size = std::min(static_cast<int>(mvs_opn.size()), 2);
-    if (mvs_opn[0].score >= THRAT_SCORE_LIMIT) {
+    if (mvs_opn.at(0).score >= THRAT_SCORE_LIMIT) {
         block_opn = true;
         for (int i = 0; i < tmp_size; ++i) {
-            Move move = mvs_opn[i];
+            Move move = mvs_opn.at(i);
 
             // Re-evaluate move as current player
             move.score = Eval::eval_pos(state, move.r, move.c, player);
@@ -778,7 +781,7 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     // Copy moves for current player
     tmp_size = std::min(static_cast<int>(mvs_player.size()), width);
     for (int i = 0; i < tmp_size; ++i)
-        cand_mvs.push_back(mvs_player[i]);
+        cand_mvs.push_back(mvs_player.at(i));
 
       // Print heuristic values for debugging
 //    if (depth >= 8) {
@@ -788,41 +791,35 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
 //        }
 //    }
 
-    // Loop through every move
-    int size = static_cast<int>(cand_mvs.size());
-    for (int i = 0; i < size; ++i) {
-        auto move = cand_mvs[i];
+    // Loop through each candidate move
+    int cand_mvs_sz = static_cast<int>(cand_mvs.size());
+    for (int i = 0; i < cand_mvs_sz; i++) {
+        Move move = cand_mvs.at(i);
 
-        // Execute move
         Util::set_spot(state, move.r, move.c, static_cast<char>(player));
 
-        // Run negamax recursively
         int sc = 0;
         int dummy_r = 0, dummy_c = 0;
-        if (depth > 1) sc = negamax(state,                 // Game state
-                                                opn,           // Change player
-                                                initial_depth,      // Initial depth
-                                                depth - 1,          // Reduce depth by 1
-                                                enable_ab_pruning,  // Alpha-Beta
-                                                -beta,              //
-                                                -alpha + move.score,
-                                                dummy_r,            // Result move not required
-                                                dummy_c);
+        // Negamax
+        if (depth > 1) sc = negamax(state, opn, initial_depth, depth - 1, enable_ab_pruning, -beta, -alpha + move.score, dummy_r, dummy_c);
 
-        // Closer moves get more score
-        if (sc >= 2) sc = static_cast<int>(sc * SCORE_DECAY);
+        // Decay longer moves
+        // if (sc >= 2) sc = static_cast<int>(sc * SCORE_DECAY);
+        sc = static_cast<int>(sc * SCORE_DECAY);
 
         // Calculate score difference
+        // if(initial_depth % 2 == 0){move.accum_score = move.score - sc;}
+        // else{move.accum_score = move.score + sc;}
         move.accum_score = move.score - sc;
 
         // Store back to candidate array
-        cand_mvs[i].accum_score = move.accum_score;
+        cand_mvs.at(i).accum_score = move.accum_score;
 
         // Print actual scores for debugging
 //        if (depth >= 8)
 //            std::cout << depth << " | " << move.r << ", " << move.c << ": " << move.accum_score << std::endl;
 
-        // Restore
+        // Restore the move
         Util::set_spot(state, move.r, move.c, 0);
 
         // Update maximum score
@@ -832,19 +829,23 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         }
 
         // Alpha-beta
-        int max_score_decayed = max_score;
-        if (max_score >= 2) max_score_decayed = static_cast<int>(max_score_decayed * SCORE_DECAY);
+        // int max_score_decayed = max_score;
+        // if (max_score >= 2) max_score_decayed = static_cast<int>(max_score_decayed * SCORE_DECAY);
         if (max_score > alpha) alpha = max_score;
-        if (enable_ab_pruning && max_score_decayed >= beta) break;
+        // if (enable_ab_pruning && max_score_decayed >= beta) break;
+        if (enable_ab_pruning && max_score >= beta) break;
     }
 
-    // If no moves that are much better than blocking threatening moves, block them.
-    // This attempts blocking even winning is impossible if the opponent plays optimally.
-    if (depth == initial_depth && block_opn && max_score < 0) {
-        auto blocking_move = cand_mvs[0];
-        int b_score = blocking_move.accum_score;
-        if (b_score == 0) b_score = 1;
-        if ((max_score - b_score) / static_cast<float>(std::abs(b_score)) < 0.2) {
+    // If there is no move that is much better then the block threats(<0.2), choose the move that blocks the threat.
+    
+    if (depth == initial_depth && block_opn && max_score < 0 && cand_mvs_sz > 0) {
+        auto blocking_move = cand_mvs.at(0);
+        double base = max(static_cast<double>(std::abs(blocking_move.accum_score)), 0.00001);
+
+        // int b_score = blocking_move.accum_score;
+        // if (b_score == 0) b_score = 1;
+        // if ((max_score - b_score) / static_cast<float>(std::abs(b_score)) < 0.2) {
+        if (((max_score - blocking_move.accum_score) / base) < 0.2) {
             move_r = blocking_move.r; move_c = blocking_move.c;
             max_score = blocking_move.accum_score;
         }
@@ -858,10 +859,10 @@ void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
     for (int r = 0; r < G_B_SIZE; r++) {
         for (int c = 0; c < G_B_SIZE; c++) {
             if (state[G_B_SIZE * r + c] != 0) {
-                if (r < l_r) l_r = r;
-                if (c < l_c) l_c = c;
-                if (r > r_r) r_r = r;
-                if (c > u_c) u_c = c;
+                if (r < l_r){l_r = r;}
+                if (c < l_c){l_c = c;}
+                if (r > r_r){r_r = r;}
+                if (c > u_c){u_c = c;}
             }
         }
     }
@@ -874,7 +875,7 @@ void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
 
 void Negamax::search_sorted_cands(const char *state, int player, std::vector<Move> &result) {
     // Clear and previous result
-    // result.clear();
+    result.clear();
     int l_r = 0, l_c = 0, r_r = 0, u_c = 0;
     active_area(state, l_r, l_c, r_r, u_c);
 

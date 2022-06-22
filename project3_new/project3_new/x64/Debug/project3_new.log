@@ -1,3 +1,3 @@
 ﻿  main.cpp
-D:\data\I2P_Kuo\project3\project3_new\project3_new\main.cpp(196,19): warning C4244: 'argument': conversion from 'time_t' to 'unsigned int', possible loss of data
+D:\data\I2P_Kuo\project3\project3_new\project3_new\main.cpp(212,19): warning C4244: 'argument': conversion from 'time_t' to 'unsigned int', possible loss of data
   project3_new.vcxproj -> D:\data\I2P_Kuo\project3\project3_new\x64\Debug\project3_new.exe

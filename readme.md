@@ -36,6 +36,8 @@ header-includes:
 
 ## Threat Space Search
 
+Refers to [Go-Moku and Threat-Space Search, 1994, L.V. Allis et.al](https://www.researchgate.net/publication/2252447_Go-Moku_and_Threat-Space_Search)
+
 In some case, if you don't defense, then you will die unless you can get 5 in a row in 1 move.
 
 ![](./img/threat_space.png)
@@ -83,12 +85,13 @@ void Eval::gen_measures(const char *state, int r, int c, int player, bool is_con
 Each time I record ``{Number of pieces in a row, Number of ends blocked by edge or the other player (0-2), Number of spaces in the middle of pattern}``
 
 ```cpp
+// Result of a measurement in a direction
 struct Measure {
 	// Number of pieces in a row
 	char len; 
-	// Number of ends blocked by edge or the other player (0-2)
+	// Number of ends blocked by the other player (1 or 2) or the border of the board (-1: don't care the value)
 	char block_cnt;
-	// Number of spaces in the middle of pattern     
+	// Number of empty spaces inside the row(number of pieces to separate the row,  -1: don't care the value)
 	char space_cnt;
 };
 ```
@@ -96,21 +99,20 @@ struct Measure {
 And I define the pattern as ``{Length of pattern (pieces in a row), Number of ends blocked by edge or the other player (0-2), Number of spaces in the middle of pattern (-1: Ignore value)}``
 
 ```cpp
+// A pattern in a direction
 struct Pattern {
-	// Minimum number of occurrences to match
+	// Minimum count of occurrences
 	char min_occur;
-	// Length of pattern (pieces in a row)
+	// Length of a pattern (number of pieces in a row)
 	char len;
-	// Number of ends blocked by edge or the other player (0-2)
+	// Number of ends blocked by the other player (1 or 2) or the border of the board (-1: don't care the value)
 	char block_cnt;
-	// Number of spaces in the middle of pattern (-1: Ignore value)
+	// Number of empty spaces inside the row(number of pieces to separate the row,  -1: don't care the value)
 	char space_cnt;
 };
 const Eval::Pattern *Eval::PATTERNS = new Eval::Pattern[PATTERNS_NUM * 2]{
         {1, 5,  0,  0}, {0, 0,  0,  0},  // 10000
         {1, 4,  0,  0}, {0, 0,  0,  0},  // 700
-        {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
-        {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
         // Threats-----------------------------
         {2, 4,  1,  0}, {0, 0,  0,  0},  // 700
         {2, 4, -1,  1}, {0, 0,  0,  0},  // 700
@@ -120,6 +122,50 @@ const Eval::Pattern *Eval::PATTERNS = new Eval::Pattern[PATTERNS_NUM * 2]{
         {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
         // Threats-----------------------------
 		...
+```
+
+![](./img/pattern_graph.png)
+
+Evaluate the given position
+
+```cpp
+int Eval::eval_pos(const char *state, int r, int c, int player) {
+    // Check parameters
+    ERR_NULL_CHECK(state, 0)
+    ERR_PLAYER_CHECK(player, 0)
+
+    Measure ms[M_DIR_NUM];
+
+    // Measure continuous and non-continuous conditions
+    gen_measures(state, r, c, player, false, ms);
+    Score sc_non_conti = eval_measures(ms);
+    gen_measures(state, r, c, player, true, ms);
+    Score sc_conti = eval_measures(ms);
+    return std::max(sc_non_conti, sc_conti);
+}
+
+int Eval::eval_measures(const Measure *measure_4d) {
+    int sc = 0;
+
+    // Find the longest length in measure_4d and skip some patterns that is longer than the Measure
+    int max_measure_len = 0;
+    for (int i = 0; i < M_DIR_NUM; i++) {
+        int len = measure_4d[i].len;
+        max_measure_len = max(len, max_measure_len);
+        sc += (len - 1);
+    }
+    int start_pat_idx = SKIP_PATTERNS[max_measure_len];
+
+    // Match specified patterns, ignore the patterns measures doesn't have
+    for (int i = start_pat_idx; i < PATTERNS_NUM; i++) {
+        sc += match_pattern(measure_4d, &PATTERNS[2 * i]) * PATTERN_SCORES[i];
+
+        // Only match one threatening pattern
+        if (sc >= THRAT_SCORE_LIMIT){break;}
+    }
+
+    return sc;
+}
 ```
 
 How I count the space and the block of a sequence
@@ -245,7 +291,7 @@ if (move.accum_score > max_score) {
 
 // Alpha-beta
 if (max_score > alpha) alpha = max_score;
-if (enable_ab_pruning && max_score >= beta) break;
+if (enable_ab_pruning && alpha >= beta) break;
 ```
 
 ## Iterative Deepening
@@ -265,56 +311,88 @@ for (int d = INIT_DEPTH;; d += INC_DEPTH) {
 }
 ```
 
+## Zobrist Hash
+
+I've tried to cache the searched state in a hash table with Zobrist hashing as the key. However, the ``operator[]`` and ``find()`` takes too much time to insert and check whether the key is in the table or not. Although it reduce the time of the ``eval_pos()`` but it takes much more time to handling the hash table. The first figure is the profiling of the hash table caching and the second one is the one without hash table.
+
+![](./img/with_hash_tbl.png)
+
+![](./img/without_hash_tbl.png)
+
+I've also measure the hit rate of the hash table, it shows that about 60% of queries are missed in the shallower depth but only 40% of queries are missed in the deeper depth. As a result, the hash table may yield benefit in the deeper game tree. But consider the constraint of the project, we only have 10s. The hash table cannot help.
+
+![](./img/with_hash_tbl_console.png)
+
+![](./img/without_hash_tbl_console.png)
+
+```cpp
+ZobristHash::ZobristHash(const char *state) {
+    this->state_hash = ZobristHash::zobrist_hash(state);
+}
+    
+ZobristHash::ClassInit::ClassInit() {
+    // Static constructor definition
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<ZbsHash> d(0, UINT64_MAX);
+
+    ZobristHash::HASH_O = new ZbsHash[G_B_AREA];
+    ZobristHash::HASH_X = new ZbsHash[G_B_AREA];
+    ZobristHash::HASH_R = new ZbsHash[G_B_SIZE];
+    ZobristHash::HASH_C = new ZbsHash[G_B_SIZE];
+    ZobristHash::HASH_ROLE = new ZbsHash[ROLE_NUM];
+
+    // Generate random values
+    for (int i = 0; i < G_B_AREA; i++) {
+        ZobristHash::HASH_O[i] = d(gen);
+        ZobristHash::HASH_X[i] = d(gen);
+    }
+    for (int i = 0; i < G_B_SIZE; i++) {
+        ZobristHash::HASH_R[i] = d(gen);
+        ZobristHash::HASH_C[i] = d(gen);
+    }
+    for(int i = 0; i < ROLE_NUM; i++){
+        ZobristHash::HASH_ROLE[i] = d(gen);
+    }
+}
+
+ZbsHash ZobristHash::zobrist_hash(const char *state) {
+    ZbsHash h = 0;
+    for (int i = 0; i < G_B_AREA; i++) {
+        if (state[i] == 1) { h ^= HASH_O[i]; }
+        else if (state[i] == 2) { h ^= HASH_X[i]; }
+    }
+    return h;
+}
+Hash ZobristHash::hash(const char *state, int r, int c, int player) {
+    Hash h = ZobristHash::zobrist_hash(state);
+    h ^= (ZobristHash::HASH_R[r] ^ ZobristHash::HASH_C[c] ^ ZobristHash::HASH_ROLE[player]);
+    return h;
+}
+Hash ZobristHash::yield(int r, int c, int player) const {
+    return this->state_hash ^ (ZobristHash::HASH_R[r] ^ ZobristHash::HASH_C[c] ^ ZobristHash::HASH_ROLE[player]);
+}
+std::string hash_str(const char *state, int r, int c, int player) {
+    char rc = (r + '0');
+    char cc = (c + '0');
+    char pc = (player + '0');
+    return std::string(state) + rc + cc + pc;
+}
+// ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X;
+ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X, *ZobristHash::HASH_R, *ZobristHash::HASH_C, *ZobristHash::HASH_ROLE;
+ZobristHash::ClassInit ZobristHash::Initialize;
+```
+
 ## Performance Issue
 
 - Allocate ``std::string``/ append string are very expensive(half of runtime in ver1)
 - Allocate class instance is much more expensive
 - Use structure, inline function, static method and static variables as much as possible
-- Try on ZobristHash to cache the computed states.
 
-```cpp
-typedef uint64_t ZbsHash;
-typedef uint64_t Hash;
+## Reference
 
-class ZobristHash {
-private:
-    static ZbsHash* HASH_O, * HASH_X;
-public:
-    ZobristHash() {}
-    static class ClassInit {
-        public:
-        ClassInit() {
-            // Static constructor definition
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<ZbsHash> d(0, UINT64_MAX);
+- Pandoc compile command
 
-            ZobristHash::HASH_O = new ZbsHash[G_B_AREA];
-            ZobristHash::HASH_X = new ZbsHash[G_B_AREA];
-
-            // Generate random values
-            for (int i = 0; i < G_B_AREA; i++) {
-                ZobristHash::HASH_O[i] = d(gen);
-                ZobristHash::HASH_X[i] = d(gen);
-            }
-        }
-    } Initialize;
-
-    static ZbsHash zobrist_hash(const char *state) {
-        ZbsHash h = 0;
-        for (int i = 0; i < G_B_AREA; i++) {
-            if (state[i] == 1) { h ^= HASH_O[i]; }
-            else if (state[i] == 2) { h ^= HASH_X[i]; }
-        }
-        return h;
-    }
-    static Hash hash(const char *state, int r, int c, int player) {
-        Hash h = ZobristHash::zobrist_hash(state);
-        h ^= (r ^ c ^ player);
-        return h;
-    }
-};
-ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X;
-ZobristHash::ClassInit ZobristHash::Initialize;
-typedef unordered_map<Hash, Score> STATE_MAP;
+```bash
+pandoc -o readme.pdf readme.md --pdf-engine=xelatex -V CJKmainfont="Microsoft JhengHei" --from markdown --template eisvogel --listings --toc --toc-depth=4
 ```

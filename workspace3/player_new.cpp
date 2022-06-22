@@ -10,12 +10,17 @@
 #include <ctime>
 #include <algorithm>
 #include <random>
+// #include "hashmap.h"
 
 using namespace std;
 
 typedef std::string BoardRow;
 typedef std::vector<BoardRow> Board;
 typedef int Score;
+typedef uint64_t ZbsHash;
+typedef uint64_t Hash;
+typedef unordered_map<Hash, Score> StateMap;
+// typedef unordered_map<std::string, Score> StateMap;
 
 #define G_B_SIZE 15
 #define G_B_AREA 225
@@ -31,9 +36,20 @@ typedef int Score;
 #define INC_DEPTH 2
 // -1 for all threats
 #define WATCH_THREAT_CNT 2
+#define ROLE_NUM 3
+#define WIN_SCORE_LIMIT 10000
+#define THRAT_SCORE_LIMIT 300
+// Est. branch factor for iterative pruning
+#define AVG_BRANCH_FACTOR 3
+// Depth limit for iterative pruning
+#define MAX_DEPTH 16
+// SCORE_DECAY decays the score by the depth of the game tree, encourage to explore shorter path
+#define SCORE_DECAY 0.95f
+#define ENABLE_TIME_LIMIT false
 
+#define SHOW_INFO false
 #define INFO(s)\
-    std::cout << s << endl;\
+if(SHOW_INFO){std::cout << s << endl;}\
 
 #define DEBUG 0
 #define debug_cpp(s)\
@@ -130,14 +146,14 @@ ostream& operator<<(ostream& os, const Board& b) {
     string bar("===============================");
     os << bar << endl;
     os << "+ ";
-    for (int i = 0; i < b.size(); i++) {
+    for (int i = 0; i < static_cast<int>(b.size()); i++) {
         os << seq(i) << " ";
     }
     os << endl;
 
-    for (int i = 0; i < b.size(); i++) {
+    for (int i = 0; i < static_cast<int>(b.size()); i++) {
         os << seq(i) << " ";
-        for (int j = 0; j < b.at(0).size(); j++) {
+        for (int j = 0; j < static_cast<int>(b.at(0).size()); j++) {
             os << b[i][j] << " ";
         }
         os << endl;
@@ -191,14 +207,14 @@ public:
         }
     }
     void rand_spot(Position& pos, Score& sc) {
+        sc = -1;
         srand(time(NULL));
-        Position rp;
         // Keep updating the output until getting killed.
-        for (int i = 0; i < 30; i++) {
+        for (int i = 0; i < 1000; i++) {
             // Choose a random spot.
-            rp.r = (rand() % this->b_size);
-            rp.c = (rand() % this->b_size);
-            write_valid_spot(rp);
+            pos.r = (rand() % this->b_size);
+            pos.c = (rand() % this->b_size);
+            write_valid_spot(pos);
         }
     }
 };
@@ -208,6 +224,7 @@ unsigned int g_eval_cnt = 0;
 unsigned int g_pattern_match_cnt = 0;
 unsigned int g_cc_0 = 0;
 unsigned int g_cc_1 = 0;
+unsigned int g_eval_missed = 0;
 IO io(G_B_SIZE, "state", "action");
 
 class Util {
@@ -239,8 +256,22 @@ class Controller {
     static bool search_act(const char *state, int player, int search_depth, int time_limit, int &actual_depth, int &move_r, int &move_c, int &winning_player);
 };
 
-#define WIN_SCORE_LIMIT 10000
-#define THRAT_SCORE_LIMIT 300
+class ZobristHash {
+private:
+    static ZbsHash *HASH_O, *HASH_X, *HASH_R, *HASH_C, *HASH_ROLE;
+    ZbsHash state_hash;
+public:
+    ZobristHash();
+    ZobristHash(const char *state);
+    static class ClassInit {
+        public:
+        ClassInit();
+    } Initialize;
+
+    static ZbsHash zobrist_hash(const char *state);
+    static Hash hash(const char *state, int r, int c, int player);
+    Hash yield(int r, int c, int player) const;
+};
 
 class Eval {
     public:
@@ -250,49 +281,53 @@ class Eval {
     const static char MEASURE_DIR_V = 2;
     const static char MEASURE_DIR_RU = 3;
 
-    // Evaluate the entire game state as a player
+    // Evaluate the entire state as a player
     static int eval_state(const char *state, int player);
-    // Evaluate one possible move as a player
+    // Evaluate one move as a player
     static int eval_pos(const char *state, int r, int c, int player);
-    // Check if any player is winning based on a given state
+    // Incorporate with ZobristHash, but profiling shows that it won't accelerate the speed of the program because the ``operator[]`` and ``find()`` take too much time.
+    static int eval_pos(const char *state, int r, int c, int player, const ZobristHash &zb_hash);
+    // Check whether any player is winning based on a given state
     static int win_player(const char *state);
-    // Result of a single direction measurement
+
+    // Result of a measurement in a direction
     struct Measure {
         // Number of pieces in a row
         char len; 
-        // Number of ends blocked by edge or the other player (0-2)
+        // Number of ends blocked by the other player (1 or 2) or the border of the board (-1: don't care the value)
         char block_cnt;
-        // Number of spaces in the middle of pattern     
+        // Number of empty spaces inside the row(number of pieces to separate the row,  -1: don't care the value)
         char space_cnt;
     };
-    // A single direction pattern
+    // A pattern in a direction
     struct Pattern {
-        // Minimum number of occurrences to match
+        // Minimum count of occurrences
         char min_occur;
-        // Length of pattern (pieces in a row)
+        // Length of a pattern (number of pieces in a row)
         char len;
-        // Number of ends blocked by edge or the other player (0-2)
+        // Number of ends blocked by the other player (1 or 2) or the border of the board (-1: don't care the value)
         char block_cnt;
-        // Number of spaces in the middle of pattern (-1: Ignore value)
+        // Number of empty spaces inside the row(number of pieces to separate the row,  -1: don't care the value)
         char space_cnt;
     };
+    // static class ClassInit {
+    //     public:
+    //     ClassInit();
+    // } Initialize;
+    // static struct hashmap_s hashmap;
+    // static StateMap state_map;
     const static int PATTERNS_NUM;
     const static int *SKIP_PATTERNS;
-    // An array of preset patterns
+    // Patterns and corresponding score
     const static Pattern *PATTERNS;
-    // Preset scores of each preset pattern
     const static int *PATTERN_SCORES;
-
     // Evaluates measures in 4 directions
     static int eval_measures(const Measure *measure_4d);
-
     // Match the patterns to measures in 4 directions
     static int match_pattern(const Measure *measure_4d, const Pattern *patterns);
-
-    // Measures all 4 directions
+    // Generate measures in 4 directions
     static void gen_measures(const char *state, int r, int c, int player, bool is_cont, Eval::Measure *ms);
-
-    // Measure a single direction
+    // Measure a direction
     static void gen_measure(const char *state, int r, int c, char dir, int player, bool is_cont, Eval::Measure &res);
 };
 
@@ -302,12 +337,8 @@ class Negamax {
 
     static void search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int &actual_depth, int &move_r, int &move_c, int init_depth, int inc_depth);
     private:
-    // Preset search width
-    // From root to leaf, each element is for 2 layers
-    // e.g. {10, 5, 2} -> 10, 10, 5, 5, 2, 2, 2, ...
+    // search width
     static int search_width[5];
-
-    // A move (candidate)
     struct Move {
         int r;
         int c;
@@ -318,10 +349,8 @@ class Negamax {
             return score > other.score;
         }
     };
-
     static int negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c);
-
-    // Search possible moves based on a given state, sorted by heuristic values.
+    // Search possible moves for a given state, sorted by evaluated value.
     static void search_sorted_cands(const char *state, int player, std::vector<Move> &result);
 };
 
@@ -368,6 +397,13 @@ bool Controller::search_act(const char *b_raw_str, int player, int search_depth,
     winning_player = Eval::win_player(state);
     if (winning_player != 0) {
         winning_player = winning_player;
+
+        // If there is a winning player, return a random move
+        Position pos;
+        Score sc;
+        io.rand_spot(pos, sc);
+        move_r = pos.r;
+        move_c = pos.c;
         return true;
     }
 
@@ -382,6 +418,98 @@ bool Controller::search_act(const char *b_raw_str, int player, int search_depth,
     return true;
 }
 
+ZobristHash::ZobristHash(const char *state) {
+    this->state_hash = ZobristHash::zobrist_hash(state);
+}
+    
+ZobristHash::ClassInit::ClassInit() {
+    // Static constructor definition
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<ZbsHash> d(0, UINT64_MAX);
+
+    ZobristHash::HASH_O = new ZbsHash[G_B_AREA];
+    ZobristHash::HASH_X = new ZbsHash[G_B_AREA];
+    ZobristHash::HASH_R = new ZbsHash[G_B_SIZE];
+    ZobristHash::HASH_C = new ZbsHash[G_B_SIZE];
+    ZobristHash::HASH_ROLE = new ZbsHash[ROLE_NUM];
+
+    // Generate random values
+    for (int i = 0; i < G_B_AREA; i++) {
+        ZobristHash::HASH_O[i] = d(gen);
+        ZobristHash::HASH_X[i] = d(gen);
+    }
+    for (int i = 0; i < G_B_SIZE; i++) {
+        ZobristHash::HASH_R[i] = d(gen);
+        ZobristHash::HASH_C[i] = d(gen);
+    }
+    for(int i = 0; i < ROLE_NUM; i++){
+        ZobristHash::HASH_ROLE[i] = d(gen);
+    }
+}
+
+ZbsHash ZobristHash::zobrist_hash(const char *state) {
+    ZbsHash h = 0;
+    for (int i = 0; i < G_B_AREA; i++) {
+        if (state[i] == 1) { h ^= HASH_O[i]; }
+        else if (state[i] == 2) { h ^= HASH_X[i]; }
+    }
+    return h;
+}
+Hash ZobristHash::hash(const char *state, int r, int c, int player) {
+    Hash h = ZobristHash::zobrist_hash(state);
+    h ^= (ZobristHash::HASH_R[r] ^ ZobristHash::HASH_C[c] ^ ZobristHash::HASH_ROLE[player]);
+    return h;
+}
+Hash ZobristHash::yield(int r, int c, int player) const {
+    return this->state_hash ^ (ZobristHash::HASH_R[r] ^ ZobristHash::HASH_C[c] ^ ZobristHash::HASH_ROLE[player]);
+}
+std::string hash_str(const char *state, int r, int c, int player) {
+    char rc = (r + '0');
+    char cc = (c + '0');
+    char pc = (player + '0');
+    return std::string(state) + rc + cc + pc;
+}
+// ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X;
+ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X, *ZobristHash::HASH_R, *ZobristHash::HASH_C, *ZobristHash::HASH_ROLE;
+ZobristHash::ClassInit ZobristHash::Initialize;
+
+// typedef union ptr {
+//     int *p;
+//     int val;
+// }Ptr;
+
+
+// inline bool hashmap_init(int size){
+//     if (0 != hashmap_create(size, &Eval::hashmap)) {return false;}
+//     return true;
+// }
+
+// inline bool hashmap_put(const std::string &s,  int x){
+//     Ptr p;
+//     p.val = x;
+//     if (0 != hashmap_put(&Eval::hashmap, s.c_str(), s.size(), p.p)) {return false;}
+//     return true;
+// }
+
+// inline bool hashmap_get(const std::string &s, int &x){
+//     Ptr ret;
+//     ret.p = static_cast<int*>(hashmap_get(&Eval::hashmap, s.c_str(), s.size()));
+//     x = ret.val;
+//     if(ret.p == nullptr){return false;}
+//     return true;
+// }
+
+// Eval::ClassInit::ClassInit() {
+//     // Eval::state_map.reserve(65536);
+//     // Eval::state_map.max_load_factor(0.25);
+
+//     // hashmap.h
+//     // hashmap_init(65536);
+// }
+// StateMap Eval::state_map;
+// struct hashmap_s Eval::hashmap;
+// Eval::ClassInit Eval::Initialize;
 const int Eval::PATTERNS_NUM = 11;
 const int *Eval::SKIP_PATTERNS = new int[6]{PATTERNS_NUM, PATTERNS_NUM, 10, 7, 1, 0};
 // {Minimum number of occurrences to match, Length of pattern (pieces in a row), Number of ends blocked by edge or the other player (0-2), Number of spaces in the middle of pattern (-1: Ignore value)}
@@ -396,8 +524,6 @@ const Eval::Pattern *Eval::PATTERNS = new Eval::Pattern[PATTERNS_NUM * 2]{
         {1, 4, -1,  1}, {1, 3,  0, -1},  // 500
         {2, 3,  0, -1}, {0, 0,  0,  0},  // 300
         // Threats-----------------------------
-        // {1, 4,  1,  0}, {0, 0,  0,  0},  // 1
-        // {1, 4, -1,  1}, {0, 0,  0,  0},  // 1
         {3, 2,  0, -1}, {0, 0,  0,  0},  // 50
         {1, 3,  0, -1}, {0, 0,  0,  0},  // 20
         {1, 2,  0, -1}, {0, 0,  0,  0}   // 9
@@ -411,8 +537,6 @@ const int *Eval::PATTERN_SCORES = new int[PATTERNS_NUM]{
         500,
         500,
         300,
-        // 1,
-        // 1,
         50,
         20,
         9
@@ -450,6 +574,40 @@ int Eval::eval_pos(const char *state, int r, int c, int player) {
     return std::max(sc_non_conti, sc_conti);
 }
 
+int Eval::eval_pos(const char *state, int r, int c, int player, const ZobristHash &zb_hash) {
+    // Incorporate with ZobristHash, but profiling shows that it won't accelerate the speed of the program because the ``operator[]`` and ``find()`` take too much time.
+    ERR_NULL_CHECK(state, 0);
+    ERR_PLAYER_CHECK(player, 0);
+
+    // Count evaluations
+    ++g_eval_cnt;
+
+    // StateMap
+    // Hash h = zb_hash.yield(r, c, player);
+    // // std::string h = hash_str(state, r, c, player);
+    // StateMap::iterator f = Eval::state_map.find(h);
+    // if(f == Eval::state_map.end()){
+    //     g_eval_missed++;
+    //     int res = Eval::eval_pos(state, r, c, player);
+    //     Eval::state_map[h] = res;
+    //     return res;
+    // }
+    // return f->second;
+
+    // hashmap.h
+    // std::string h = hash_str(state, r, c, player);
+    // int x = 0;
+    // bool f = hashmap_get(h, x);
+    // if(!f){
+    //     g_eval_missed++;
+    //     int res = Eval::eval_pos(state, r, c, player);
+    //     hashmap_put(h, res); 
+    //     return res;
+    // }
+    // return x;
+    return 0;
+}
+
 int Eval::eval_measures(const Measure *measure_4d) {
     int sc = 0;
 
@@ -475,8 +633,8 @@ int Eval::eval_measures(const Measure *measure_4d) {
 }
 
 int Eval::match_pattern(const Measure *measure_4d, const Pattern *patterns) {
-    NULL_CHECK(measure_4d, -1);
-    NULL_CHECK(patterns, -1);
+    NULL_CHECK(measure_4d, -1)
+    NULL_CHECK(patterns, -1)
 
     // Increase pattern match count
     g_pattern_match_cnt++;
@@ -619,71 +777,8 @@ int Eval::win_player(const char *state) {
     return 0;
 }
 
-// search_width is used to control branching factor
-// Different width configurations are possible:
-// A lower width for a higher depth
-// Or vice versa
+// Search width hyperparameters for controlling the branching factor. Narrower width for deeper depth
 int Negamax::search_width[5] = {17, 7, 5, 3, 3};
-
-// Est. branch factor for iterative pruning
-#define AVG_BRANCH_FACTOR 3
-// Depth limit for iterative pruning
-#define MAX_DEPTH 16
-
-// SCORE_DECAY decays the score by the depth of the game tree, encourage to explore shorter path
-#define SCORE_DECAY 0.95f
-
-typedef uint64_t ZbsHash;
-typedef uint64_t Hash;
-// union Hash{
-//     ZbsHash Zobrist_hash;
-//     char r;
-//     char c;
-//     char player;
-// };
-
-class ZobristHash {
-private:
-    static ZbsHash* HASH_O, * HASH_X;
-public:
-    ZobristHash() {}
-    static class ClassInit {
-        public:
-        ClassInit() {
-            // Static constructor definition
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<ZbsHash> d(0, UINT64_MAX);
-
-            ZobristHash::HASH_O = new ZbsHash[G_B_AREA];
-            ZobristHash::HASH_X = new ZbsHash[G_B_AREA];
-
-            // Generate random values
-            for (int i = 0; i < G_B_AREA; i++) {
-                ZobristHash::HASH_O[i] = d(gen);
-                ZobristHash::HASH_X[i] = d(gen);
-            }
-        }
-    } Initialize;
-
-    static ZbsHash zobrist_hash(const char *state) {
-        ZbsHash h = 0;
-        for (int i = 0; i < G_B_AREA; i++) {
-            if (state[i] == 1) { h ^= HASH_O[i]; }
-            else if (state[i] == 2) { h ^= HASH_X[i]; }
-        }
-        return h;
-    }
-    static Hash hash(const char *state, int r, int c, int player) {
-        Hash h = ZobristHash::zobrist_hash(state);
-        h ^= (r ^ c ^ player);
-        return h;
-    }
-};
-ZbsHash *ZobristHash::HASH_O, *ZobristHash::HASH_X;
-ZobristHash::ClassInit ZobristHash::Initialize;
-
-typedef unordered_map<Hash, Score> STATE_MAP;
 
 void Negamax::search(const char *state, int player, int depth, int time_limit, bool enable_ab_pruning, int &actual_depth, int &move_r, int &move_c, int init_depth=INIT_DEPTH, int inc_depth=INC_DEPTH) {
     ERR_NULL_CHECK(state,)
@@ -694,7 +789,7 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
     char ng_state[G_B_AREA] = {0};
     memcpy(ng_state, state, G_B_AREA);
 
-    // Speedup first move
+    // Shallower tree for the first move
     int occupied_cnt = 0;
     for (int i = 0; i < G_B_AREA; i++){
         if (ng_state[i] != 0){occupied_cnt++;}
@@ -709,9 +804,9 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
         negamax(ng_state, player, depth, depth, enable_ab_pruning, alpha, beta, move_r, move_c);
     } else {
         // Iterative deepening
-        std::clock_t c_start = std::clock();
+        std::clock_t clk_start = std::clock();
         for (int d = INIT_DEPTH;; d += INC_DEPTH) {
-            std::clock_t c_iteration_start = std::clock();
+            std::clock_t clk_iter_start = std::clock();
 
             // Reset game state
             memcpy(ng_state, state, G_B_AREA);
@@ -719,25 +814,25 @@ void Negamax::search(const char *state, int player, int depth, int time_limit, b
             // Execute search
             negamax(ng_state, player, d, d, enable_ab_pruning, alpha, beta, move_r, move_c);
             actual_depth = d;
-            INFO("Deepening - actual_depth: " << actual_depth << " Act: (" << move_r << ", " << move_c << ")" << " node_count: " << g_node_cnt << " eval_count: " << g_eval_cnt)
             io.write_valid_spot(Position(move_r, move_c));
 
             // Times
-            std::clock_t c_iteration = (std::clock() - c_iteration_start) * 1000 / CLOCKS_PER_SEC;
-            std::clock_t c_elapsed = (std::clock() - c_start) * 1000 / CLOCKS_PER_SEC;
+            std::clock_t clk_iter = (std::clock() - clk_iter_start) * 1000 / CLOCKS_PER_SEC;
+            std::clock_t clk_elapse = (std::clock() - clk_start) * 1000 / CLOCKS_PER_SEC;
 
-            if (c_elapsed + (c_iteration * AVG_BRANCH_FACTOR * AVG_BRANCH_FACTOR) > time_limit || d >= MAX_DEPTH) {
-                // if (actual_depth != nullptr) *actual_depth = d;
-                actual_depth = d;
-                break;
-            }
+            INFO("Deepening - actual_depth: " << actual_depth << " | Act: (" << move_r << ", " << move_c << ")" << " | node_count: " << g_node_cnt << " | eval_count: " << g_eval_cnt << " | eval_missed: " << g_eval_missed << "(" << ((float)g_eval_missed / (float)g_eval_cnt) * 100 << "%)" << " | Iter ms: " << clk_iter)
+
+            // if (ENABLE_TIME_LIMIT && (clk_elapse + (clk_iter * AVG_BRANCH_FACTOR * AVG_BRANCH_FACTOR) > time_limit || d >= MAX_DEPTH)) {
+            //     actual_depth = d;
+            //     break;
+            // }
         }
     }
 }
 int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool enable_ab_pruning, int alpha, int beta, int &move_r, int &move_c) {
     ++g_node_cnt;
 
-    int max_score = INT_MIN;
+    int max_sc = INT_MIN;
     int opn = player == 1 ? 2 : 1;
 
     // Sort valid, non-remote moves
@@ -762,11 +857,13 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     // int tmp_size = std::min(static_cast<int>(mvs_opn.size()), 2);
     if (mvs_opn.at(0).score >= THRAT_SCORE_LIMIT) {
         block_opn = true;
+        // ZobristHash zb(state);
         for (int i = 0; i < tmp_size; ++i) {
             Move move = mvs_opn.at(i);
 
             // Re-evaluate move as current player
             move.score = Eval::eval_pos(state, move.r, move.c, player);
+            // move.score = Eval::eval_pos(state, move.r, move.c, player, zb);
 
             // Add to move candidates
             cand_mvs.push_back(move);
@@ -783,14 +880,6 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
     for (int i = 0; i < tmp_size; ++i)
         cand_mvs.push_back(mvs_player.at(i));
 
-      // Print heuristic values for debugging
-//    if (depth >= 8) {
-//        for (int i = 0; i < mvs_player.size(); ++i) {
-//            auto move = mvs_player[i];
-//            std::cout << depth << " | " << move.r << ", " << move.c << ": " << move.score << std::endl;
-//        }
-//    }
-
     // Loop through each candidate move
     int cand_mvs_sz = static_cast<int>(cand_mvs.size());
     for (int i = 0; i < cand_mvs_sz; i++) {
@@ -804,53 +893,49 @@ int Negamax::negamax(char *state, int player, int initial_depth, int depth, bool
         if (depth > 1) sc = negamax(state, opn, initial_depth, depth - 1, enable_ab_pruning, -beta, -alpha + move.score, dummy_r, dummy_c);
 
         // Decay longer moves
-        // if (sc >= 2) sc = static_cast<int>(sc * SCORE_DECAY);
-        sc = static_cast<int>(sc * SCORE_DECAY);
+        if (sc >= 2) sc = static_cast<int>(sc * SCORE_DECAY);
+        // sc = static_cast<int>(sc * SCORE_DECAY);
 
         // Calculate score difference
-        // if(initial_depth % 2 == 0){move.accum_score = move.score - sc;}
-        // else{move.accum_score = move.score + sc;}
         move.accum_score = move.score - sc;
 
         // Store back to candidate array
         cand_mvs.at(i).accum_score = move.accum_score;
 
-        // Print actual scores for debugging
-//        if (depth >= 8)
-//            std::cout << depth << " | " << move.r << ", " << move.c << ": " << move.accum_score << std::endl;
-
         // Restore the move
         Util::set_spot(state, move.r, move.c, 0);
 
         // Update maximum score
-        if (move.accum_score > max_score) {
-            max_score = move.accum_score;
+        if (move.accum_score > max_sc) {
+            max_sc = move.accum_score;
             move_r = move.r; move_c = move.c;
         }
 
         // Alpha-beta
-        // int max_score_decayed = max_score;
-        // if (max_score >= 2) max_score_decayed = static_cast<int>(max_score_decayed * SCORE_DECAY);
-        if (max_score > alpha) alpha = max_score;
-        // if (enable_ab_pruning && max_score_decayed >= beta) break;
-        if (enable_ab_pruning && max_score >= beta) break;
+        int max_sc_decay = max_sc;
+        if (max_sc >= 2) max_sc_decay = static_cast<int>(max_sc_decay * SCORE_DECAY);
+        if (max_sc > alpha) alpha = max_sc;
+        if (enable_ab_pruning && max_sc_decay >= beta) break;
+        // if (enable_ab_pruning && alpha >= beta) break;
+
+        // if (max_sc > alpha) alpha = max_sc;
+        // if (enable_ab_pruning && alpha >= beta) break;
     }
 
     // If there is no move that is much better then the block threats(<0.2), choose the move that blocks the threat.
-    
-    if (depth == initial_depth && block_opn && max_score < 0 && cand_mvs_sz > 0) {
-        auto blocking_move = cand_mvs.at(0);
-        double base = max(static_cast<double>(std::abs(blocking_move.accum_score)), 0.00001);
+    if (depth == initial_depth && block_opn && max_sc < 0 && cand_mvs.size() > 0) {
+        auto block_mv = cand_mvs.at(0);
+        // double base = max(static_cast<double>(std::abs(block_mv.accum_score)), 0.00001);
 
-        // int b_score = blocking_move.accum_score;
-        // if (b_score == 0) b_score = 1;
-        // if ((max_score - b_score) / static_cast<float>(std::abs(b_score)) < 0.2) {
-        if (((max_score - blocking_move.accum_score) / base) < 0.2) {
-            move_r = blocking_move.r; move_c = blocking_move.c;
-            max_score = blocking_move.accum_score;
+        int block_sc = block_mv.accum_score;
+        if (block_sc == 0) block_sc = 1;
+        if ((max_sc - block_sc) / static_cast<float>(std::abs(block_sc)) < 0.2) {
+        // if (((max_sc - block_mv.accum_score) / base) < 0.2) {
+            move_r = block_mv.r; move_c = block_mv.c;
+            max_sc = block_mv.accum_score;
         }
     }
-    return max_score;
+    return max_sc;
 }
 
 void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
@@ -876,6 +961,7 @@ void active_area(const char *state, int &l_r, int &l_c, int &r_r, int &u_c){
 void Negamax::search_sorted_cands(const char *state, int player, std::vector<Move> &result) {
     // Clear and previous result
     result.clear();
+    ZobristHash zb(state);
     int l_r = 0, l_c = 0, r_r = 0, u_c = 0;
     active_area(state, l_r, l_c, r_r, u_c);
 
@@ -894,6 +980,7 @@ void Negamax::search_sorted_cands(const char *state, int player, std::vector<Mov
 
             // Evaluate move
             m.score = Eval::eval_pos(state, r, c, player);
+            // m.score = Eval::eval_pos(state, r, c, player, zb);
 
             // Add move
             result.push_back(m);
@@ -908,8 +995,8 @@ int main(){
 
     bool is_first_hand = true;
     char b_raw_str[G_B_SIZE * G_B_SIZE] = {0};
-    for(int i = 0; i < io.board.size(); i++){
-        for(int j = 0; j < io.board.at(0).size(); j++){
+    for(int i = 0; i < static_cast<int>(io.board.size()); i++){
+        for(int j = 0; j < static_cast<int>(io.board.at(0).size()); j++){
             if(io.board[i][j] == OC){
                 b_raw_str[i * G_B_SIZE + j] = '1';
                 is_first_hand = false;
